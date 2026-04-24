@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE kcfg SYSTEM "http://www.kde.org/standards/kcfg/1.0/kcfg.dtd">
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+
+    <kcfgfile name="categorizedtodorc"/>
+
+    <group name="General">
+        <entry name="categoryCount" type="Int">
+            <label>Number of active categories (1..4)</label>
+            <default>4</default>
+            <min>1</min>
+            <max>4</max>
+        </entry>
+
+        <entry name="categoryNames" type="StringList">
+            <label>Names for each category</label>
+            <default>Personal,Trabajo,Estudio,Otros</default>
+        </entry>
+
+        <entry name="categoryColors" type="StringList">
+            <label>Hex colors for each category</label>
+            <default>#2ecc71,#f1c40f,#3498db,#e74c3c</default>
+        </entry>
+
+        <entry name="showPriorityIcons" type="Bool">
+            <label>Show priority badges on tasks</label>
+            <default>true</default>
+        </entry>
+
+        <entry name="confirmDelete" type="Bool">
+            <label>Ask for confirmation before deleting archived tasks</label>
+            <default>true</default>
+        </entry>
+
+        <entry name="panelShowLabels" type="Bool">
+            <label>Show category names next to counters in the panel</label>
+            <default>false</default>
+        </entry>
+
+        <entry name="panelShowZero" type="Bool">
+            <label>Show categories with zero pending tasks in the panel</label>
+            <default>true</default>
+        </entry>
+
+        <entry name="popupWidth" type="Int">
+            <label>Popup width in pixels</label>
+            <default>420</default>
+            <min>280</min>
+            <max>900</max>
+        </entry>
+
+        <entry name="popupHeight" type="Int">
+            <label>Popup height in pixels</label>
+            <default>500</default>
+            <min>300</min>
+            <max>1200</max>
+        </entry>
+    </group>
+
+    <group name="Data">
+        <entry name="tasksJson" type="String">
+            <label>Serialized tasks (active). JSON array.</label>
+            <default>[]</default>
+        </entry>
+
+        <entry name="archivedJson" type="String">
+            <label>Serialized tasks (archived). JSON array.</label>
+            <default>[]</default>
+        </entry>
+
+        <entry name="nextId" type="Int">
+            <label>Next task id</label>
+            <default>1</default>
+        </entry>
+    </group>
+</kcfg>
