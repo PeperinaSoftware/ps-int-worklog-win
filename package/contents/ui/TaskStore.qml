@@ -66,6 +66,24 @@ QtObject {
         plasmoid.configuration.tasksJson = JSON.stringify(tasks);
         plasmoid.configuration.archivedJson = JSON.stringify(archived);
         plasmoid.configuration.nextId = _nextId;
+        // Force the KConfigPropertyMap to flush to disk now. Without this
+        // the writes get debounced and may be lost on a hard reboot or a
+        // plasmashell crash. See docs/PERSISTENCE.md for details.
+        _flushConfig();
+    }
+
+    function _flushConfig() {
+        // writeConfig is exposed by KConfigPropertyMap (Plasma's QML config
+        // wrapper) but only on Plasma >= 5.x with kdeclarative. Fall back
+        // gracefully if it's missing.
+        try {
+            if (plasmoid && plasmoid.configuration
+                    && typeof plasmoid.configuration.writeConfig === "function") {
+                plasmoid.configuration.writeConfig();
+            }
+        } catch (e) {
+            console.warn("TaskStore: writeConfig() failed:", e);
+        }
     }
 
     function _bump() {

@@ -151,8 +151,11 @@ package/
 ## Modelo de datos
 
 Todas las tareas se guardan en `Plasmoid.configuration` serializadas como
-JSON (no se usa ninguna base de datos ni servicio externo). La configuración
-de Plasma persiste los cambios automáticamente.
+JSON (no se usa ninguna base de datos ni servicio externo). El plasmoide
+fuerza un *flush* sincrónico de la configuración tras cada cambio para que
+nada se pierda en reinicios. Los detalles de **dónde** vive el archivo,
+**cómo** se escribe y **cómo depurar** están en
+[`docs/PERSISTENCE.md`](docs/PERSISTENCE.md).
 
 Forma de cada tarea:
 

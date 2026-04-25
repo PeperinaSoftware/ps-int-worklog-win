@@ -68,9 +68,10 @@
             <min>300</min>
             <max>1200</max>
         </entry>
-    </group>
 
-    <group name="Data">
+        <!-- Task data is stored under the same General group on purpose,
+             so writes flow through the same KConfigPropertyMap path that
+             Plasma actually wires up. See docs/PERSISTENCE.md. -->
         <entry name="tasksJson" type="String">
             <label>Serialized tasks (active). JSON array.</label>
             <default>[]</default>
