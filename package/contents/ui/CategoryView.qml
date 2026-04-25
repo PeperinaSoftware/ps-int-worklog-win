@@ -18,6 +18,8 @@ Item {
     signal editTaskRequested(var task)
     signal newTaskRequested(int catIndex)
     signal editSubtaskRequested(var task, var subtask)
+    signal exportRequested(int catIndex, string categoryName)
+    signal importRequested(int catIndex, string categoryName)
 
     CategoryHelper { id: cats }
 
@@ -48,6 +50,20 @@ Item {
                 }
                 font.bold: true
                 elide: Text.ElideRight
+            }
+            PlasmaComponents3.ToolButton {
+                icon.name: "document-export"
+                onClicked: view.exportRequested(view.catIndex, cats.name(view.catIndex))
+                PlasmaComponents3.ToolTip.text: i18n("Export this category as JSON")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
+            }
+            PlasmaComponents3.ToolButton {
+                icon.name: "document-import"
+                onClicked: view.importRequested(view.catIndex, cats.name(view.catIndex))
+                PlasmaComponents3.ToolTip.text: i18n("Import JSON into this category")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
             }
             PlasmaComponents3.Button {
                 icon.name: "document-new"

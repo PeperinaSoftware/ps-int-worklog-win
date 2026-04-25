@@ -32,66 +32,61 @@ Item {
             Repeater {
                 model: cats.count()
                 QQC2.TabButton {
+                    id: catTab
                     property int pending: (store.version, store.pendingCountForCategory(index))
+                    // Slightly more horizontal padding so the badge breathes.
+                    leftPadding: 8
+                    rightPadding: 8
                     contentItem: RowLayout {
-                        spacing: 4
+                        spacing: 6
                         Rectangle {
-                            width: 10
-                            height: 10
-                            radius: 5
+                            Layout.preferredWidth: 8
+                            Layout.preferredHeight: 8
+                            radius: 4
                             color: cats.color(index)
                             Layout.alignment: Qt.AlignVCenter
                         }
                         PlasmaComponents3.Label {
                             text: cats.name(index)
                             elide: Text.ElideRight
+                            Layout.fillWidth: true
                             Layout.alignment: Qt.AlignVCenter
+                            verticalAlignment: Text.AlignVCenter
                         }
-                        Rectangle {
-                            visible: pending > 0
-                            color: cats.color(index)
-                            radius: 8
-                            implicitHeight: 16
-                            implicitWidth: Math.max(16, countLabel.implicitWidth + 8)
-                            PlasmaComponents3.Label {
-                                id: countLabel
-                                anchors.centerIn: parent
-                                text: pending
-                                color: "white"
-                                font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
-                                font.bold: true
-                            }
+                        TabCountBadge {
+                            visible: catTab.pending > 0
+                            count: catTab.pending
+                            badgeColor: cats.color(index)
+                            Layout.alignment: Qt.AlignVCenter
                         }
                     }
                 }
             }
 
             QQC2.TabButton {
+                id: archiveTab
+                leftPadding: 8
+                rightPadding: 8
                 contentItem: RowLayout {
-                    spacing: 4
+                    spacing: 6
                     PlasmaCore.IconItem {
                         source: "archive-insert"
                         Layout.preferredWidth: 14
                         Layout.preferredHeight: 14
+                        Layout.alignment: Qt.AlignVCenter
                     }
                     PlasmaComponents3.Label {
                         text: i18n("Archive")
                         elide: Text.ElideRight
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        verticalAlignment: Text.AlignVCenter
                     }
-                    Rectangle {
+                    TabCountBadge {
                         visible: (store.version, store.archived.length > 0)
-                        color: PlasmaCore.Theme.disabledTextColor
-                        radius: 8
-                        implicitHeight: 16
-                        implicitWidth: Math.max(16, aCountLabel.implicitWidth + 8)
-                        PlasmaComponents3.Label {
-                            id: aCountLabel
-                            anchors.centerIn: parent
-                            text: (store.version, store.archived.length)
-                            color: "white"
-                            font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
-                            font.bold: true
-                        }
+                        count: (store.version, store.archived.length)
+                        badgeColor: PlasmaCore.Theme.disabledTextColor
+                        Layout.alignment: Qt.AlignVCenter
                     }
                 }
             }
@@ -112,6 +107,8 @@ Item {
                     onNewTaskRequested: taskDialog.openNew(catIndex)
                     onEditTaskRequested: taskDialog.openEdit(task)
                     onEditSubtaskRequested: subDialog.openFor(task, subtask)
+                    onExportRequested: exportDialog.openFor(catIndex, categoryName)
+                    onImportRequested: importDialog.openFor(catIndex, categoryName)
                 }
             }
 
@@ -149,6 +146,16 @@ Item {
 
     SubtaskEditDialog {
         id: subDialog
+        store: full.store
+    }
+
+    ExportDialog {
+        id: exportDialog
+        store: full.store
+    }
+
+    ImportDialog {
+        id: importDialog
         store: full.store
     }
 

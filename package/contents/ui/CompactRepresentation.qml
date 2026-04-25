@@ -1,11 +1,12 @@
 /*
  * CompactRepresentation.qml - panel / system-tray view.
  *
- * Lays out one badge per active category, horizontally:
- *     [GREEN] 1   [YELLOW] 3   [BLUE] 5   [RED] 0
+ * Two layouts supported via plasmoid.configuration.panelCounterStyle:
+ *   - "right":  [swatch] N    (swatch + count to the right; original layout)
+ *   - "inside": [ N ]         (a bigger swatch with the count drawn inside)
  *
- * Each badge is a colored square followed by the pending-task count
- * for that category. Clicking the widget toggles the popup.
+ * The text color of the counter is configurable per category via
+ * plasmoid.configuration.panelCounterColors ("white" | "black").
  */
 
 import QtQuick 2.15
@@ -22,6 +23,16 @@ Item {
     readonly property int _v: store ? store.version : 0
 
     CategoryHelper { id: cats }
+
+    // Tunables used for sizing.
+    readonly property int _smallSwatch: Math.max(10, PlasmaCore.Units.iconSizes.small - 2)
+    readonly property int _bigSwatch:   Math.max(18, PlasmaCore.Units.iconSizes.medium - 2)
+
+    function _textColor(idx) {
+        var arr = plasmoid.configuration.panelCounterColors || [];
+        var v = arr[idx];
+        return (v === "black") ? "black" : "white";
+    }
 
     Layout.minimumWidth: row.implicitWidth + PlasmaCore.Units.smallSpacing * 2
     Layout.preferredWidth: Layout.minimumWidth
@@ -43,31 +54,85 @@ Item {
         Repeater {
             model: cats.count()
 
-            RowLayout {
-                spacing: PlasmaCore.Units.smallSpacing
-                visible: plasmoid.configuration.panelShowZero
-                         || (compact._v, store.pendingCountForCategory(index) > 0)
+            // Each entry is a Loader-like Item that renders the right layout
+            // based on the configured counter style.
+            Item {
+                id: badge
+                readonly property int catIndex: index
+                readonly property int pending: (compact._v, store.pendingCountForCategory(catIndex))
+                readonly property bool show: plasmoid.configuration.panelShowZero || pending > 0
+                readonly property bool insideMode: plasmoid.configuration.panelCounterStyle === "inside"
 
-                Rectangle {
-                    Layout.preferredWidth: Math.max(10, PlasmaCore.Units.iconSizes.small - 2)
-                    Layout.preferredHeight: Layout.preferredWidth
-                    radius: 2
-                    color: cats.color(index)
-                    border.width: 1
-                    border.color: Qt.darker(color, 1.4)
+                visible: show
+                implicitWidth: insideMode ? insideRow.implicitWidth : rightRow.implicitWidth
+                implicitHeight: insideMode ? insideRow.implicitHeight : rightRow.implicitHeight
+                Layout.preferredWidth: implicitWidth
+                Layout.preferredHeight: implicitHeight
+
+                // -------- "right" style: square + counter to its right --------
+                RowLayout {
+                    id: rightRow
+                    visible: !badge.insideMode
+                    spacing: PlasmaCore.Units.smallSpacing
+
+                    Rectangle {
+                        Layout.preferredWidth: compact._smallSwatch
+                        Layout.preferredHeight: compact._smallSwatch
+                        radius: 2
+                        color: cats.color(badge.catIndex)
+                        border.width: 1
+                        border.color: Qt.darker(color, 1.4)
+                    }
+
+                    PlasmaComponents3.Label {
+                        text: badge.pending
+                        color: compact._textColor(badge.catIndex)
+                        font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize + 2
+                        font.bold: true
+                    }
+
+                    PlasmaComponents3.Label {
+                        visible: plasmoid.configuration.panelShowLabels
+                        text: cats.name(badge.catIndex)
+                        font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
+                        opacity: 0.75
+                    }
                 }
 
-                PlasmaComponents3.Label {
-                    text: (compact._v, store.pendingCountForCategory(index))
-                    font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize + 2
-                    font.bold: true
-                }
+                // -------- "inside" style: bigger square with number inside --------
+                RowLayout {
+                    id: insideRow
+                    visible: badge.insideMode
+                    spacing: PlasmaCore.Units.smallSpacing
 
-                PlasmaComponents3.Label {
-                    visible: plasmoid.configuration.panelShowLabels
-                    text: cats.name(index)
-                    font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
-                    opacity: 0.75
+                    Rectangle {
+                        id: bigSwatch
+                        // Slightly wider for two-digit counts so it doesn't clip.
+                        property bool wide: badge.pending >= 10
+                        Layout.preferredWidth: wide ? compact._bigSwatch + 8 : compact._bigSwatch
+                        Layout.preferredHeight: compact._bigSwatch
+                        radius: 3
+                        color: cats.color(badge.catIndex)
+                        border.width: 1
+                        border.color: Qt.darker(color, 1.4)
+
+                        PlasmaComponents3.Label {
+                            anchors.centerIn: parent
+                            text: badge.pending
+                            color: compact._textColor(badge.catIndex)
+                            font.bold: true
+                            font.pixelSize: Math.max(
+                                PlasmaCore.Theme.smallestFont.pixelSize,
+                                Math.round(compact._bigSwatch * 0.6))
+                        }
+                    }
+
+                    PlasmaComponents3.Label {
+                        visible: plasmoid.configuration.panelShowLabels
+                        text: cats.name(badge.catIndex)
+                        font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
+                        opacity: 0.75
+                    }
                 }
             }
         }

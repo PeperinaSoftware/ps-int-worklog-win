@@ -45,6 +45,16 @@
             <default>true</default>
         </entry>
 
+        <entry name="panelCounterStyle" type="String">
+            <label>Counter layout in the panel: "right" (number to the right of the swatch) or "inside" (number drawn inside the swatch)</label>
+            <default>right</default>
+        </entry>
+
+        <entry name="panelCounterColors" type="StringList">
+            <label>Per-category counter text color: "white" or "black"</label>
+            <default>white,black,white,white</default>
+        </entry>
+
         <entry name="popupWidth" type="Int">
             <label>Popup width in pixels</label>
             <default>420</default>

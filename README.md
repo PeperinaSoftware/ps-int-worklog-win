@@ -31,6 +31,14 @@ que vienen con Plasma 5 y Qt 5.15 (`org.kde.plasma.*`, `org.kde.kirigami`,
 - **Subtareas** dentro de cada tarea: cada una con su propia casilla,
   prioridad, botón para editar y botón para eliminar. También una fila inline
   de “Agregar subtarea”.
+- **Exportar / Importar JSON por categoría**:
+  - Botón **Exportar** (icono de exportación) en la cabecera de cada
+    pestaña: abre un diálogo con todo el JSON de esa categoría
+    (incluyendo subtareas) listo para copiar al portapapeles.
+  - Botón **Importar** (icono de importación) en la cabecera de cada
+    pestaña: abre un diálogo donde se pega un JSON y se agregan las
+    tareas a esa categoría. Soporta tanto el formato exportado
+    (`{ schema, tasks: [...] }`) como un array plano de tareas.
 - Pestaña **Archivo**:
   - Muestra las tareas archivadas con fecha y la categoría original.
   - Botón para **restaurar** a la lista activa.
@@ -47,7 +55,12 @@ pendientes de esa categoría. Por ejemplo:
 [verde] 1   [amarillo] 3   [azul] 5   [rojo] 0
 ```
 
-Opciones:
+Opciones (pestaña *Apariencia* de la configuración):
+- **Disposición del contador**: a la derecha del cuadrado (predeterminado)
+  o **dentro** del cuadrado (en ese caso el cuadrado es más grande y el
+  número se centra dentro).
+- **Color del número por categoría**: blanco o negro, elegido
+  individualmente para que contraste con cada color de categoría.
 - Mostrar u ocultar el nombre al lado del contador.
 - Ocultar las categorías con 0 pendientes.
 
@@ -67,6 +80,8 @@ Pestaña **Categorías**:
 - Selector de color nativo Qt (`QtQuick.Dialogs.ColorDialog`).
 
 Pestaña **Apariencia** (controla la vista compacta):
+- Disposición del contador: a la derecha o dentro del cuadrado.
+- Color del número (blanco / negro) por categoría con vista previa.
 - Mostrar nombre al lado de cada contador.
 - Mostrar categorías con cero pendientes.
 
@@ -117,8 +132,11 @@ package/
 │       ├── TaskItem.qml          # delegate de una tarea (con subtareas)
 │       ├── PriorityBadge.qml     # chip XS/S/M/L/XL
 │       ├── PrioritySelector.qml  # combo XS/S/M/L/XL
+│       ├── TabCountBadge.qml     # contador circular dentro de las pestañas
 │       ├── TaskEditDialog.qml    # diálogo nuevo/editar tarea
 │       ├── SubtaskEditDialog.qml # diálogo editar subtarea
+│       ├── ExportDialog.qml      # diálogo de exportación JSON por categoría
+│       ├── ImportDialog.qml      # diálogo de importación JSON por categoría
 │       ├── CategoryHelper.qml    # helper: lee nombres/colores desde config
 │       ├── TaskStore.qml         # modelo + persistencia JSON
 │       ├── configGeneral.qml     # pestaña General de la config

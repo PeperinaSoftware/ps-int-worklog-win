@@ -258,6 +258,64 @@ QtObject {
         _bump();
     }
 
+    // ---------------- Export / Import ----------------
+
+    // Returns a pretty-printed JSON string with all active tasks of one
+    // category, including their subtasks. IDs are preserved in the export
+    // but not relied upon by the importer.
+    function exportCategoryJson(catIndex) {
+        var out = [];
+        for (var i = 0; i < tasks.length; i++) {
+            if (tasks[i].category === catIndex) {
+                out.push(tasks[i]);
+            }
+        }
+        var payload = {
+            schema: "categorizedtodo.v1",
+            exportedAt: Date.now(),
+            category: catIndex,
+            tasks: out
+        };
+        return JSON.stringify(payload, null, 2);
+    }
+
+    // Parses a JSON string and appends the parsed tasks to the given
+    // category. Each imported task and subtask is re-stamped with a fresh
+    // id to avoid clashes. Returns the number of imported top-level tasks
+    // or throws on malformed input.
+    function importCategoryJson(catIndex, jsonText) {
+        var data = JSON.parse(jsonText);
+        var src = null;
+
+        if (Array.isArray(data)) {
+            // Plain array of tasks (e.g. from a hand-edited export).
+            src = data;
+        } else if (data && Array.isArray(data.tasks)) {
+            src = data.tasks;
+        } else {
+            throw new Error("Unrecognized JSON structure");
+        }
+
+        var imported = 0;
+        for (var i = 0; i < src.length; i++) {
+            var raw = src[i];
+            if (!raw || typeof raw !== "object") continue;
+            var task = _normalize(raw);
+            task.id = _nextId++;
+            task.category = catIndex;
+            task.archivedAt = 0;
+            // Re-stamp subtask ids too.
+            for (var j = 0; j < task.subtasks.length; j++) {
+                task.subtasks[j].id = _nextId++;
+            }
+            tasks.push(task);
+            imported++;
+        }
+        save();
+        _bump();
+        return imported;
+    }
+
     // When the user lowers categoryCount, reassign orphan tasks to the last
     // visible category so they remain reachable.
     function reassignOutOfRangeCategories(newCount) {
