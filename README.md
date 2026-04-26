@@ -138,7 +138,8 @@ package/
 │       ├── ExportDialog.qml      # diálogo de exportación JSON por categoría
 │       ├── ImportDialog.qml      # diálogo de importación JSON por categoría
 │       ├── CategoryHelper.qml    # helper: lee nombres/colores desde config
-│       ├── TaskStore.qml         # modelo + persistencia JSON
+│       ├── FileStore.qml         # I/O atómico de archivos JSON propios
+│       ├── TaskStore.qml         # modelo en memoria + persistencia
 │       ├── configGeneral.qml     # pestaña General de la config
 │       ├── configCategories.qml  # pestaña Categorías de la config
 │       └── configAppearance.qml  # pestaña Apariencia de la config
@@ -150,12 +151,15 @@ package/
 
 ## Modelo de datos
 
-Todas las tareas se guardan en `Plasmoid.configuration` serializadas como
-JSON (no se usa ninguna base de datos ni servicio externo). El plasmoide
-fuerza un *flush* sincrónico de la configuración tras cada cambio para que
-nada se pierda en reinicios. Los detalles de **dónde** vive el archivo,
-**cómo** se escribe y **cómo depurar** están en
-[`docs/PERSISTENCE.md`](docs/PERSISTENCE.md).
+Las tareas se guardan como **archivos JSON** bajo
+`~/.local/share/categorizedtodo/`, uno por categoría más uno único de
+archivado. La configuración del widget (categorías, colores, opciones
+del panel) sigue en `Plasmoid.configuration`. Las escrituras son
+atómicas (temp file + `mv`) y no usan ninguna librería externa: la
+escritura va por `PlasmaCore.DataSource(engine: "executable")` que ya
+viene con Plasma 5.27, y la lectura por `XMLHttpRequest` síncrono. Los
+detalles —dónde vive cada archivo, cómo se escribe y cómo depurar—
+están en [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md).
 
 Forma de cada tarea:
 

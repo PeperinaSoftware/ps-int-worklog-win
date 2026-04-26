@@ -2,7 +2,10 @@
  * main.qml - Categorized ToDo plasmoid root.
  *
  * Declares the compact (panel) and full (popup) representations and owns the
- * shared TaskStore so every view sees the same data.
+ * shared TaskStore + FileStore so every view sees the same data.
+ *
+ * Persistence lives in JSON files under ~/.local/share/categorizedtodo/.
+ * See docs/PERSISTENCE.md.
  */
 
 import QtQuick 2.15
@@ -33,19 +36,37 @@ Item {
             ? i18np("%1 pending task", "%1 pending tasks", _store.totalPending())
             : ""
 
+    FileStore {
+        id: _fileStore
+    }
+
     TaskStore {
         id: _store
         plasmoid: plasmoid
+        fileStore: _fileStore
     }
 
-    Component.onCompleted: _store.load()
+    Component.onCompleted: {
+        _fileStore.init();
+        _store.load();
+    }
 
-    // If the user reduces the number of categories, clamp orphan tasks.
+    Component.onDestruction: {
+        _store.flushNow();
+    }
+
+    // If the user changes the number of categories, clamp orphans and
+    // rewrite the manifest so orphan files get cleaned up.
     Connections {
         target: plasmoid.configuration
         function onCategoryCountChanged() {
             var n = Math.min(4, Math.max(1, plasmoid.configuration.categoryCount || 4));
             _store.reassignOutOfRangeCategories(n);
+        }
+        // If category names change, the per-category file slugs also change.
+        // Rewrite all files so headers (categoryName) and filenames stay in sync.
+        function onCategoryNamesChanged() {
+            _store.notifyCategoryNamesChanged();
         }
     }
 }

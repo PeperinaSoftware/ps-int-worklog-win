@@ -3,24 +3,22 @@
  *
  * Central data store for the Categorized ToDo plasmoid.
  *
- * Design:
- *   - Source of truth = two plain JavaScript arrays (tasks, archived).
- *   - A `version` integer is bumped on every change so views can depend on it
- *     in bindings to refresh automatically (Repeater / ListView model reset).
- *   - Persistence uses Plasmoid.configuration.tasksJson / archivedJson.
+ * Persistence layout (see docs/PERSISTENCE.md):
+ *   ~/.local/share/categorizedtodo/
+ *     manifest.json        { schema, nextId, slugs:[s0,s1,s2,s3], updatedAt }
+ *     0-<slug>.json        active tasks of category 0
+ *     1-<slug>.json
+ *     ...
+ *     archived.json        archived tasks (any category)
  *
- * Task shape:
- *   {
- *     id: int,
- *     title: string,
- *     description: string,
- *     category: int,           // index into configured categories
- *     priority: "XS"|"S"|"M"|"L"|"XL",
- *     done: bool,
- *     createdAt: number,       // ms since epoch
- *     archivedAt: number,      // 0 if active
- *     subtasks: [ { id, title, priority, done } ]
- *   }
+ * Each per-category file:
+ *   { schema:"categorizedtodo.v1", categoryIndex, categoryName, tasks:[...] }
+ *
+ * Source of truth in memory = two plain JS arrays (tasks, archived) plus
+ * a `version` integer that views depend on for binding refresh.
+ *
+ * Saves are debounced ~150ms via a Timer to coalesce rapid edits, and
+ * flushNow() is exposed for shutdown handlers.
  */
 
 import QtQuick 2.15
@@ -28,8 +26,9 @@ import QtQuick 2.15
 QtObject {
     id: store
 
-    // Injected from main.qml to get access to Plasmoid.configuration.
+    // Injected from main.qml.
     property var plasmoid: null
+    property var fileStore: null
 
     property var tasks: []
     property var archived: []
@@ -38,57 +37,229 @@ QtObject {
     property int _nextId: 1
     property bool _loaded: false
 
+    // Mutation tracking for selective writes.
+    property var _dirtyCategories: ({})   // { "0": true, "2": true }
+    property bool _archivedDirty: false
+    property bool _manifestDirty: false
+
+    // Cached slugs from the last manifest read; used to detect renames.
+    property var _persistedSlugs: []
+
     signal changed()
 
-    // ---------------- Load & Save ----------------
+    // Debounce timer: every mutation (re)starts it; fires once when idle.
+    property var _saveTimer: Timer {
+        interval: 150
+        repeat: false
+        onTriggered: store._writePending()
+    }
+
+    // ------------------------------------------------------------------
+    // Load
+    // ------------------------------------------------------------------
 
     function load() {
-        if (!plasmoid) return;
-        try {
-            tasks = (JSON.parse(plasmoid.configuration.tasksJson || "[]") || []).map(_normalize);
-        } catch (e) {
-            console.warn("TaskStore: tasksJson parse failed:", e);
-            tasks = [];
+        if (!fileStore) {
+            console.warn("TaskStore.load: no FileStore");
+            _loaded = true;
+            _bump();
+            return;
         }
-        try {
-            archived = (JSON.parse(plasmoid.configuration.archivedJson || "[]") || []).map(_normalize);
-        } catch (e2) {
-            console.warn("TaskStore: archivedJson parse failed:", e2);
+
+        var manifest = fileStore.readJson("manifest.json", null);
+        if (manifest) {
+            _nextId = Math.max(1, manifest.nextId || 1);
+            _persistedSlugs = (manifest.slugs || []).slice();
+        } else {
+            _nextId = 1;
+            _persistedSlugs = [];
+        }
+
+        var n = _categoryCount();
+        var loadedTasks = [];
+        for (var i = 0; i < n; i++) {
+            // Try the file under the current slug; if not found, try the
+            // slug recorded in the manifest (rename detection); finally
+            // fall back to numbered-only.
+            var current = _fileNameForCategory(i, _slugForCategory(i));
+            var data = fileStore.readJson(current, null);
+            if (!data && _persistedSlugs[i]) {
+                var legacy = _fileNameForCategory(i, _persistedSlugs[i]);
+                data = fileStore.readJson(legacy, null);
+            }
+            if (data && Array.isArray(data.tasks)) {
+                for (var t = 0; t < data.tasks.length; t++) {
+                    var norm = _normalize(data.tasks[t]);
+                    norm.category = i; // force category index from file location
+                    loadedTasks.push(norm);
+                    if (norm.id >= _nextId) _nextId = norm.id + 1;
+                }
+            }
+        }
+        tasks = loadedTasks;
+
+        var arc = fileStore.readJson("archived.json", null);
+        if (arc && Array.isArray(arc.tasks)) {
+            archived = arc.tasks.map(_normalize);
+            for (var a = 0; a < archived.length; a++) {
+                if (archived[a].id >= _nextId) _nextId = archived[a].id + 1;
+            }
+        } else {
             archived = [];
         }
-        _nextId = Math.max(1, plasmoid.configuration.nextId || 1);
+
         _loaded = true;
+        _dirtyCategories = ({});
+        _archivedDirty = false;
+        _manifestDirty = false;
         _bump();
     }
 
+    // ------------------------------------------------------------------
+    // Save (debounced)
+    // ------------------------------------------------------------------
+
     function save() {
-        if (!plasmoid || !_loaded) return;
-        plasmoid.configuration.tasksJson = JSON.stringify(tasks);
-        plasmoid.configuration.archivedJson = JSON.stringify(archived);
-        plasmoid.configuration.nextId = _nextId;
-        // Force the KConfigPropertyMap to flush to disk now. Without this
-        // the writes get debounced and may be lost on a hard reboot or a
-        // plasmashell crash. See docs/PERSISTENCE.md for details.
-        _flushConfig();
+        if (!_loaded || !fileStore) return;
+        _saveTimer.restart();
     }
 
-    function _flushConfig() {
-        // writeConfig is exposed by KConfigPropertyMap (Plasma's QML config
-        // wrapper) but only on Plasma >= 5.x with kdeclarative. Fall back
-        // gracefully if it's missing.
-        try {
-            if (plasmoid && plasmoid.configuration
-                    && typeof plasmoid.configuration.writeConfig === "function") {
-                plasmoid.configuration.writeConfig();
+    // Force any pending writes to disk synchronously schedule. Note that
+    // the writes themselves go through the executable data source which
+    // is asynchronous; we cannot truly block. We do, however, stop the
+    // debounce timer and submit the commands immediately, which is the
+    // safest we can do from QML.
+    function flushNow() {
+        if (_saveTimer.running) {
+            _saveTimer.stop();
+        }
+        _writePending();
+    }
+
+    function _writePending() {
+        if (!_loaded || !fileStore) return;
+
+        var n = _categoryCount();
+        var currentSlugs = [];
+        for (var i = 0; i < n; i++) currentSlugs.push(_slugForCategory(i));
+
+        // Detect renames: for any category whose slug changed, delete
+        // the old filename and mark the category dirty so the new file
+        // is written below. Doing this in two separate shell commands
+        // is race-free because they touch different filenames; the new
+        // file is always written before the user can see the change.
+        for (var ri = 0; ri < n; ri++) {
+            var oldSlug = _persistedSlugs[ri];
+            var newSlug = currentSlugs[ri];
+            if (oldSlug && oldSlug !== newSlug) {
+                fileStore.removeFile(_fileNameForCategory(ri, oldSlug));
+                _dirtyCategories[ri] = true;
+                _manifestDirty = true;
             }
-        } catch (e) {
-            console.warn("TaskStore: writeConfig() failed:", e);
+        }
+
+        // Detect categoryCount shrink: orphan files for indices >= n
+        // get deleted. We only know about the slugs we persisted; if
+        // user manually placed files we leave them alone.
+        for (var di = n; di < _persistedSlugs.length; di++) {
+            if (_persistedSlugs[di]) {
+                fileStore.removeFile(_fileNameForCategory(di, _persistedSlugs[di]));
+                _manifestDirty = true;
+            }
+        }
+
+        // Write each dirty category file.
+        for (var key in _dirtyCategories) {
+            if (!_dirtyCategories.hasOwnProperty(key)) continue;
+            var idx = parseInt(key, 10);
+            if (isNaN(idx) || idx < 0 || idx >= n) continue;
+            var slug = currentSlugs[idx];
+            var filename = _fileNameForCategory(idx, slug);
+            var payload = {
+                schema: "categorizedtodo.v1",
+                categoryIndex: idx,
+                categoryName: _categoryName(idx),
+                tasks: tasks.filter(function(t) { return t.category === idx; })
+            };
+            fileStore.writeJson(filename, payload);
+            _manifestDirty = true;
+        }
+        _dirtyCategories = ({});
+
+        if (_archivedDirty) {
+            fileStore.writeJson("archived.json", {
+                schema: "categorizedtodo.v1",
+                tasks: archived
+            });
+            _archivedDirty = false;
+            _manifestDirty = true;
+        }
+
+        // Manifest is cheap and useful for next load: always rewrite if
+        // anything changed (or if the slugs differ from what we last
+        // persisted).
+        var slugsChanged = (_persistedSlugs.length !== currentSlugs.length);
+        if (!slugsChanged) {
+            for (var ci = 0; ci < currentSlugs.length; ci++) {
+                if (_persistedSlugs[ci] !== currentSlugs[ci]) {
+                    slugsChanged = true;
+                    break;
+                }
+            }
+        }
+        if (_manifestDirty || slugsChanged) {
+            fileStore.writeJson("manifest.json", {
+                schema: "categorizedtodo.v1",
+                nextId: _nextId,
+                slugs: currentSlugs,
+                updatedAt: Date.now()
+            });
+            _persistedSlugs = currentSlugs.slice();
+            _manifestDirty = false;
         }
     }
+
+    // ------------------------------------------------------------------
+    // Helpers
+    // ------------------------------------------------------------------
 
     function _bump() {
         version = version + 1;
         changed();
+    }
+
+    function _markCategoryDirty(catIndex) {
+        _dirtyCategories[String(catIndex | 0)] = true;
+    }
+
+    function _categoryCount() {
+        if (!plasmoid) return 4;
+        return Math.min(4, Math.max(1, plasmoid.configuration.categoryCount || 4));
+    }
+
+    function _categoryName(i) {
+        if (!plasmoid) return "category-" + i;
+        var arr = plasmoid.configuration.categoryNames || [];
+        return arr[i] || ("category-" + i);
+    }
+
+    function _slugForCategory(i) {
+        return _slugify(_categoryName(i));
+    }
+
+    function _slugify(name) {
+        var s = String(name || "").toLowerCase();
+        // Replace anything that's not [a-z0-9] with a single dash.
+        s = s.replace(/[^a-z0-9]+/g, "-");
+        // Trim leading/trailing dashes.
+        s = s.replace(/^-+|-+$/g, "");
+        if (s.length === 0) s = "untitled";
+        if (s.length > 32) s = s.substring(0, 32);
+        return s;
+    }
+
+    function _fileNameForCategory(catIndex, slug) {
+        return (catIndex | 0) + "-" + slug + ".json";
     }
 
     function _normalize(t) {
@@ -112,10 +283,11 @@ QtObject {
         };
     }
 
-    // ---------------- Queries ----------------
+    // ------------------------------------------------------------------
+    // Queries
+    // ------------------------------------------------------------------
 
     function tasksForCategory(catIndex) {
-        // Returns a shallow-copied list so callers can't mutate our state.
         var out = [];
         for (var i = 0; i < tasks.length; i++) {
             if (tasks[i].category === catIndex) out.push(tasks[i]);
@@ -147,7 +319,9 @@ QtObject {
         return (i >= 0) ? tasks[i] : null;
     }
 
-    // ---------------- Mutations ----------------
+    // ------------------------------------------------------------------
+    // Mutations
+    // ------------------------------------------------------------------
 
     function addTask(title, category, priority, description) {
         var t = _normalize({
@@ -158,27 +332,32 @@ QtObject {
             description: description || ""
         });
         tasks.push(t);
-        save();
+        _markCategoryDirty(t.category);
         _bump();
+        save();
         return t.id;
     }
 
     function updateTask(id, fields) {
         var i = _indexOf(tasks, id);
         if (i < 0) return;
+        var prevCat = tasks[i].category;
         var t = tasks[i];
         for (var k in fields) if (fields.hasOwnProperty(k)) t[k] = fields[k];
         tasks[i] = t;
-        save();
+        _markCategoryDirty(prevCat);
+        if (t.category !== prevCat) _markCategoryDirty(t.category);
         _bump();
+        save();
     }
 
     function toggleTaskDone(id) {
         var i = _indexOf(tasks, id);
         if (i < 0) return;
         tasks[i].done = !tasks[i].done;
-        save();
+        _markCategoryDirty(tasks[i].category);
         _bump();
+        save();
     }
 
     function addSubtask(taskId, title, priority) {
@@ -190,8 +369,9 @@ QtObject {
             priority: priority || "M",
             done: false
         });
-        save();
+        _markCategoryDirty(tasks[i].category);
         _bump();
+        save();
     }
 
     function updateSubtask(taskId, subId, fields) {
@@ -201,8 +381,9 @@ QtObject {
         for (var j = 0; j < subs.length; j++) {
             if (subs[j].id === subId) {
                 for (var k in fields) if (fields.hasOwnProperty(k)) subs[j][k] = fields[k];
-                save();
+                _markCategoryDirty(tasks[i].category);
                 _bump();
+                save();
                 return;
             }
         }
@@ -215,8 +396,9 @@ QtObject {
         for (var j = 0; j < subs.length; j++) {
             if (subs[j].id === subId) {
                 subs[j].done = !subs[j].done;
-                save();
+                _markCategoryDirty(tasks[i].category);
                 _bump();
+                save();
                 return;
             }
         }
@@ -229,15 +411,14 @@ QtObject {
         for (var j = 0; j < subs.length; j++) {
             if (subs[j].id === subId) {
                 subs.splice(j, 1);
-                save();
+                _markCategoryDirty(tasks[i].category);
                 _bump();
+                save();
                 return;
             }
         }
     }
 
-    // Move a task to the archive (it gets done=true; only archived tasks can
-    // be permanently deleted).
     function archiveTask(id) {
         var i = _indexOf(tasks, id);
         if (i < 0) return;
@@ -246,8 +427,10 @@ QtObject {
         t.done = true;
         archived.unshift(t);
         tasks.splice(i, 1);
-        save();
+        _markCategoryDirty(t.category);
+        _archivedDirty = true;
         _bump();
+        save();
     }
 
     function restoreTask(id) {
@@ -258,101 +441,116 @@ QtObject {
         t.done = false;
         tasks.push(t);
         archived.splice(i, 1);
-        save();
+        _markCategoryDirty(t.category);
+        _archivedDirty = true;
         _bump();
+        save();
     }
 
     function deleteArchived(id) {
         var i = _indexOf(archived, id);
         if (i < 0) return;
         archived.splice(i, 1);
-        save();
+        _archivedDirty = true;
         _bump();
+        save();
     }
 
     function clearArchive() {
         archived = [];
-        save();
+        _archivedDirty = true;
         _bump();
+        save();
     }
 
-    // ---------------- Export / Import ----------------
+    // ------------------------------------------------------------------
+    // Export / Import
+    // ------------------------------------------------------------------
 
-    // Returns a pretty-printed JSON string with all active tasks of one
-    // category, including their subtasks. IDs are preserved in the export
-    // but not relied upon by the importer.
     function exportCategoryJson(catIndex) {
         var out = [];
         for (var i = 0; i < tasks.length; i++) {
-            if (tasks[i].category === catIndex) {
-                out.push(tasks[i]);
-            }
+            if (tasks[i].category === catIndex) out.push(tasks[i]);
         }
-        var payload = {
+        return JSON.stringify({
             schema: "categorizedtodo.v1",
             exportedAt: Date.now(),
             category: catIndex,
+            categoryName: _categoryName(catIndex),
             tasks: out
-        };
-        return JSON.stringify(payload, null, 2);
+        }, null, 2);
     }
 
-    // Parses a JSON string and appends the parsed tasks to the given
-    // category. Each imported task and subtask is re-stamped with a fresh
-    // id to avoid clashes. Returns the number of imported top-level tasks
-    // or throws on malformed input.
     function importCategoryJson(catIndex, jsonText) {
         var data = JSON.parse(jsonText);
         var src = null;
-
         if (Array.isArray(data)) {
-            // Plain array of tasks (e.g. from a hand-edited export).
             src = data;
         } else if (data && Array.isArray(data.tasks)) {
             src = data.tasks;
         } else {
             throw new Error("Unrecognized JSON structure");
         }
-
         var imported = 0;
         for (var i = 0; i < src.length; i++) {
             var raw = src[i];
             if (!raw || typeof raw !== "object") continue;
-            var task = _normalize(raw);
-            task.id = _nextId++;
-            task.category = catIndex;
-            task.archivedAt = 0;
-            // Re-stamp subtask ids too.
-            for (var j = 0; j < task.subtasks.length; j++) {
-                task.subtasks[j].id = _nextId++;
+            var t = _normalize(raw);
+            t.id = _nextId++;
+            t.category = catIndex;
+            t.archivedAt = 0;
+            for (var j = 0; j < t.subtasks.length; j++) {
+                t.subtasks[j].id = _nextId++;
             }
-            tasks.push(task);
+            tasks.push(t);
             imported++;
         }
-        save();
+        _markCategoryDirty(catIndex);
         _bump();
+        save();
         return imported;
     }
 
-    // When the user lowers categoryCount, reassign orphan tasks to the last
-    // visible category so they remain reachable.
+    // ------------------------------------------------------------------
+    // Category-count adjustments
+    // ------------------------------------------------------------------
+
     function reassignOutOfRangeCategories(newCount) {
         var dirty = false;
         for (var i = 0; i < tasks.length; i++) {
             if (tasks[i].category >= newCount) {
+                _markCategoryDirty(tasks[i].category); // old file rewritten / removed
                 tasks[i].category = newCount - 1;
+                _markCategoryDirty(tasks[i].category);
                 dirty = true;
             }
         }
         for (var j = 0; j < archived.length; j++) {
             if (archived[j].category >= newCount) {
                 archived[j].category = newCount - 1;
+                _archivedDirty = true;
                 dirty = true;
             }
         }
         if (dirty) {
-            save();
             _bump();
+            save();
+        } else {
+            // Even with no task moves, the manifest needs updating so
+            // orphan files for categories above newCount get cleaned up.
+            _manifestDirty = true;
+            save();
         }
+    }
+
+    // Called when category names change (without affecting count).
+    // We mark every category dirty so file content gets refreshed with
+    // the new categoryName, and the rename machinery in _writePending
+    // does its work.
+    function notifyCategoryNamesChanged() {
+        var n = _categoryCount();
+        for (var i = 0; i < n; i++) _markCategoryDirty(i);
+        _manifestDirty = true;
+        save();
     }
 }

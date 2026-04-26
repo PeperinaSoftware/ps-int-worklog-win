@@ -9,220 +9,263 @@ Qt 5.15, pero aplica a cualquier instalación equivalente.
 
 ## TL;DR
 
-- **Todo** (configuración + tareas activas + tareas archivadas) se guarda
-  en el mismo archivo:
+- Las **tareas** (activas + archivadas) se guardan como **archivos JSON**
+  bajo:
   ```
-  ~/.config/plasma-org.kde.plasma.desktop-appletsrc
+  ~/.local/share/categorizedtodo/
   ```
-- Bajo la sección del applet (cada instancia es una sub-sección distinta),
-  dentro del grupo `[Configuration][General]`.
-- El plasmoide ahora hace un *flush* sincrónico (`writeConfig()`) después
-  de cada cambio en las tareas, así nada se pierde aunque Plasma se cierre
-  abruptamente.
+- La **configuración** del widget (cantidad de categorías, nombres,
+  colores, opciones del panel/popup) sigue en `Plasmoid.configuration` →
+  `~/.config/plasma-org.kde.plasma.desktop-appletsrc`.
+- Las escrituras de las tareas son **atómicas** (escribir a `*.tmp` y
+  hacer `mv`), así que un crash o reinicio nunca deja archivos a medio
+  escribir.
+- Backup = copiar la carpeta. Restore = volver a copiarla.
 
 ---
 
-## El bug original
+## Por qué se cambió desde `Plasmoid.configuration`
 
-Antes del fix, las **categorías y colores** se guardaban pero las
-**tareas no**. Esto era contraintuitivo, ya que los dos viajan por el
-mismo `Plasmoid.configuration`. La causa real:
+Plasma 5 expone `Plasmoid.configuration` como un `KConfigPropertyMap`
+con escritura **debounced**: los cambios se acumulan y se vuelcan al
+disco un rato después. Las categorías y colores se persistían porque el
+diálogo *Configurar* llama `writeConfig()` al pulsar Aceptar. Pero las
+tareas se editan desde el popup, sin pasar por ese diálogo, y a pesar
+de que agregamos un `writeConfig()` explícito en `TaskStore.save()` el
+flush no era confiable en algunos setups (race con el shutdown de
+plasmashell, posibles bugs en versiones específicas de
+`KConfigPropertyMap`).
 
-1. Plasma expone `Plasmoid.configuration` en QML como un
-   [`KConfigPropertyMap`](https://api.kde.org/frameworks/kdeclarative/html/classKDeclarative_1_1ConfigPropertyMap.html).
-2. Cuando se escribe un valor (`plasmoid.configuration.X = ...`),
-   `KConfigPropertyMap` programa una escritura **debounced**: se acumulan
-   los cambios y un timer escribe en disco un rato más tarde.
-3. Las **categorías y colores** se editan desde el diálogo *Configurar*,
-   que al pulsar **Aceptar/Aplicar** llama explícitamente a
-   `writeConfig()` antes de cerrarse → quedan en disco enseguida.
-4. Las **tareas** se editan desde el popup, sin pasar por el diálogo de
-   configuración. El timer interno *eventualmente* las habría escrito,
-   pero un reinicio frío, un `kquitapp5 plasmashell`, o cualquier muerte
-   abrupta del proceso ocurría antes de que se ejecutara, y los cambios
-   se perdían.
+Para cortar el problema de raíz se migró el storage de tareas a
+**archivos JSON propios** que el plasmoide controla por completo. La
+configuración del widget (que sí persiste bien) queda donde está.
 
 ---
 
-## El fix
+## Layout en disco
 
-`package/contents/ui/TaskStore.qml` ahora invoca `writeConfig()` después
-de cada mutación:
+```
+~/.local/share/categorizedtodo/
+├── manifest.json           # metadatos del store
+├── 0-personal.json         # tareas activas de la categoría 0
+├── 1-trabajo.json          # tareas activas de la categoría 1
+├── 2-estudio.json          # tareas activas de la categoría 2
+├── 3-otros.json            # tareas activas de la categoría 3
+└── archived.json           # tareas archivadas (de cualquier categoría)
+```
 
-```qml
-function save() {
-    if (!plasmoid || !_loaded) return;
-    plasmoid.configuration.tasksJson = JSON.stringify(tasks);
-    plasmoid.configuration.archivedJson = JSON.stringify(archived);
-    plasmoid.configuration.nextId = _nextId;
-    _flushConfig();    // <-- forzamos la escritura
-}
+El nombre de cada archivo de tareas combina el **índice** de la
+categoría (estable) y un **slug** del nombre de la categoría
+(legible). Si renombrás una categoría, el archivo se renombra
+automáticamente en el siguiente save.
 
-function _flushConfig() {
-    if (plasmoid && plasmoid.configuration
-            && typeof plasmoid.configuration.writeConfig === "function") {
-        plasmoid.configuration.writeConfig();
-    }
+### Ejemplo: `manifest.json`
+
+```json
+{
+  "schema": "categorizedtodo.v1",
+  "nextId": 7,
+  "slugs": ["personal", "trabajo", "estudio", "otros"],
+  "updatedAt": 1736290800000
 }
 ```
 
-`writeConfig()` está expuesto como método invocable (`Q_INVOKABLE`) por
-`KConfigPropertyMap`, así que se puede llamar directamente desde QML.
-La operación es sincrónica y muy rápida (es un INI plano).
+`nextId` es el contador para asignar IDs únicos a tareas y subtareas;
+`slugs` permite detectar renombres de categorías entre sesiones.
 
-Además, **se consolidaron todas las entradas KCfg en el grupo `General`**
-de `package/contents/config/main.xml`. Algunas combinaciones de Plasma
-con grupos secundarios no exponen los entries de manera correcta; usar
-un solo grupo evita ese terreno gris.
+### Ejemplo: `0-personal.json`
+
+```json
+{
+  "schema": "categorizedtodo.v1",
+  "categoryIndex": 0,
+  "categoryName": "Personal",
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Comprar pan",
+      "description": "Panadería de la esquina",
+      "category": 0,
+      "priority": "M",
+      "done": false,
+      "createdAt": 1736290000000,
+      "archivedAt": 0,
+      "subtasks": [
+        { "id": 2, "title": "Pedir integral", "priority": "S", "done": false }
+      ]
+    }
+  ]
+}
+```
+
+### Ejemplo: `archived.json`
+
+```json
+{
+  "schema": "categorizedtodo.v1",
+  "tasks": [
+    {
+      "id": 5,
+      "title": "Pagar luz",
+      "category": 1,
+      "priority": "L",
+      "done": true,
+      "createdAt": 1735000000000,
+      "archivedAt": 1736000000000,
+      "subtasks": []
+    }
+  ]
+}
+```
 
 ---
 
-## Dónde viven los datos exactamente
+## Cómo se escriben los archivos (sin librerías externas)
 
-Cada applet de Plasma se identifica por su posición en la jerarquía de
-*Containments*. Para nuestro plasmoide la ruta del archivo es siempre la
-misma:
+QML por sí solo no tiene API para escribir archivos. La solución usada
+combina dos piezas que ya vienen con Plasma 5.27 + Qt 5.15:
+
+1. **Lectura**: `XMLHttpRequest` síncrona contra URLs `file://`.
+2. **Escritura**: `org.kde.plasma.core 2.0` `DataSource { engine:
+   "executable" }` que ejecuta un comando shell.
+
+El comando es un `sh -c` con argumentos posicionales para que el JSON
+nunca se interpole en el script:
+
+```sh
+sh -c 'mkdir -p "$1" && \
+       printf "%s" "$3" | base64 -d > "$1/$2.tmp" && \
+       mv -f "$1/$2.tmp" "$1/$2"' \
+   sh "$DIR" "$FILENAME" "$BASE64_JSON"
+```
+
+- El JSON se **codifica en base64** desde QML (`Qt.btoa`) y se
+  decodifica en la shell (`base64 -d`). Así no hay que escapar
+  comillas, saltos de línea, ni caracteres raros.
+- La escritura es **atómica** (`mv` en el mismo filesystem es atómico
+  por POSIX).
+- Los nombres de archivo se validan con un regex estricto
+  (`^[a-zA-Z0-9._-]+$`) antes de pasarlos a la shell, así que no hay
+  superficie de inyección.
+
+El código vive en `package/contents/ui/FileStore.qml`.
+
+---
+
+## Verificarlo manualmente
+
+```bash
+# Listar el contenido del store
+ls -la ~/.local/share/categorizedtodo/
+
+# Ver el manifest (legible si tenés jq)
+cat ~/.local/share/categorizedtodo/manifest.json | jq .
+
+# Ver las tareas de una categoría
+cat ~/.local/share/categorizedtodo/0-personal.json | jq .
+
+# Ver las archivadas
+cat ~/.local/share/categorizedtodo/archived.json | jq .
+```
+
+### En vivo
+
+```bash
+inotifywait -m ~/.local/share/categorizedtodo/
+```
+
+Cada vez que agregues, edites o archives una tarea deberías ver
+eventos `CREATE` / `MOVED_TO` / `CLOSE_WRITE,CLOSE`.
+
+---
+
+## Backup / migración
+
+```bash
+# Backup
+cp -a ~/.local/share/categorizedtodo ~/categorizedtodo-bak
+
+# Restore
+cp -a ~/categorizedtodo-bak/. ~/.local/share/categorizedtodo/
+```
+
+Para mover tareas entre máquinas o entre instancias del plasmoide
+**sin tocar la carpeta**, usá el botón **Exportar / Importar JSON** que
+tiene cada categoría desde la cabecera de la pestaña.
+
+---
+
+## Configuración del widget (sigue en KConfig)
+
+Las opciones de Configurar (cantidad de categorías, sus nombres y
+colores, estilo del contador en el panel, tamaño del popup, etc.)
+viven en:
 
 ```
 ~/.config/plasma-org.kde.plasma.desktop-appletsrc
 ```
 
-Y dentro hay un fragmento parecido a esto (los números de containment y
-applet cambian según donde lo coloques):
-
-```ini
-[Containments][2][Applets][12]
-immutability=1
-plugin=org.kde.plasma.categorizedtodo
-
-[Containments][2][Applets][12][Configuration][General]
-categoryCount=4
-categoryNames=Personal,Trabajo,Estudio,Otros
-categoryColors=#2ecc71,#f1c40f,#3498db,#e74c3c
-showPriorityIcons=true
-confirmDelete=true
-panelShowLabels=false
-panelShowZero=true
-panelCounterStyle=right
-panelCounterColors=white,black,white,white
-popupWidth=420
-popupHeight=500
-tasksJson=[{"id":1,"title":"Comprar pan","category":0,...}]
-archivedJson=[]
-nextId=2
-```
-
-Notas:
-
-- El backend es **KConfig** (formato INI con escapes propios). Las
-  cadenas con `=`, comillas, `\`, saltos de línea, etc., son escapadas
-  automáticamente. No hay límite efectivo de tamaño, las tareas con
-  varios miles de caracteres conviven sin problemas.
-- `tasksJson` y `archivedJson` son strings JSON; `categoryNames`,
-  `categoryColors` y `panelCounterColors` son `StringList` (separados
-  por coma).
-- El archivo se sincroniza en disco con `fsync()` por KConfig, así que
-  un crash justo después de un `writeConfig()` no debería corromperlo.
+dentro de la sección `[Containments][N][Applets][M][Configuration][General]`
+del applet. Se persisten mediante el flujo estándar del diálogo
+*Configurar* (Apply / OK), que sí dispara un `writeConfig()` confiable.
 
 ---
 
-## Cómo verificarlo manualmente
+## Debug: si las tareas no persisten
 
-Con el plasmoide instalado y al menos una tarea creada:
-
-```bash
-# Ubicar el archivo y filtrar por nuestro plugin:
-grep -n 'org.kde.plasma.categorizedtodo' \
-    ~/.config/plasma-org.kde.plasma.desktop-appletsrc
-
-# Ver el bloque de Configuration completo del applet (cambia 12 por tu
-# número de applet):
-awk '/^\[Containments\]\[.*\]\[Applets\]\[12\]/{p=1} p; /^\[/{if (p && !/Applets.12./) p=0}' \
-    ~/.config/plasma-org.kde.plasma.desktop-appletsrc
-```
-
-Inmediatamente después de tildar/destildar una tarea o crear una nueva,
-el archivo debería reflejar el cambio. Si no, ver la sección de debug
-abajo.
-
-### Tip: en vivo
-
-```bash
-# Mostrar cambios en el archivo en tiempo real:
-inotifywait -m -e modify ~/.config/plasma-org.kde.plasma.desktop-appletsrc
-```
-
----
-
-## Cómo respaldar / migrar
-
-Como todo está en un único archivo INI, basta con copiarlo:
-
-```bash
-# Backup
-cp ~/.config/plasma-org.kde.plasma.desktop-appletsrc ~/plasma-applets.bak
-
-# Restore (cerrá Plasma antes para evitar pisar tu copia)
-kquitapp5 plasmashell
-cp ~/plasma-applets.bak ~/.config/plasma-org.kde.plasma.desktop-appletsrc
-kstart5 plasmashell
-```
-
-Para migrar tareas entre máquinas o entre instancias del plasmoide
-**sin tocar este archivo**, usá la función **Exportar / Importar JSON**
-que tiene cada categoría desde la cabecera de la pestaña.
-
----
-
-## Debug: si las tareas siguen sin persistir
-
-1. **Verificá que el plasmoide esté usando esta versión** (con el fix en
-   `TaskStore.qml`). Si lo instalaste con `./install.sh --dev` (symlink),
-   los cambios al `.qml` se aplican al recargar el plasmoide o a
-   plasmashell.
-
-2. **Confirmá que `writeConfig()` exista**. En la consola QML:
+1. **Carpeta y permisos**:
    ```bash
-   plasmashell --replace 2>&1 | grep -i 'writeConfig'
+   ls -la ~/.local/share/categorizedtodo/
    ```
-   Si aparece `TaskStore: writeConfig() failed`, tu plasma-framework no
-   expone el método. En tal caso, instalá una versión más reciente (KDE
-   Plasma 5.27+ y kdeclarative 5.103+ lo tienen).
+   Debe existir (la crea el plasmoide al cargar) y ser tuya con
+   permiso de escritura.
 
-3. **Mirá si el INI cambia** al modificar una tarea (ver la sección
-   *Cómo verificarlo manualmente* arriba). Si no cambia, el problema es
-   que el flush no llegó a disco. Si cambia pero al reabrir las tareas
-   aparecen vacías, el problema está en la deserialización (`load()`).
-
-4. **Permisos**:
+2. **El plasmoide está cargando esta versión**: si lo instalaste en
+   modo dev (`./install.sh --dev`), refrescá plasmashell:
    ```bash
-   ls -l ~/.config/plasma-org.kde.plasma.desktop-appletsrc
+   kquitapp5 plasmashell && kstart5 plasmashell
    ```
-   Tiene que ser tuyo y tener permiso de escritura (`-rw-`). Algún
-   `sudo` viejo puede haberlo dejado como `root`.
 
-5. **Logs QML**:
+3. **Logs QML**:
    ```bash
-   journalctl --user -f -u plasma-plasmashell.service | grep -i todo
+   journalctl --user -f -u plasma-plasmashell.service | grep -iE 'fileStore|TaskStore'
    ```
-   El `TaskStore` registra `console.warn(...)` cuando JSON.parse falla.
+   El `FileStore` registra `console.warn(...)` cuando un comando shell
+   sale con código distinto de 0 (incluyendo `stderr`).
 
-6. **Reset duro** (último recurso): borrar el bloque
-   `[Containments][...][Applets][...][Configuration][General]`
-   correspondiente al plasmoide. Volverá a sus defaults.
+4. **El comando shell no se está ejecutando**: usá `inotifywait` (ver
+   arriba) mientras agregás una tarea. Si no llega ningún evento, el
+   `DataSource` no está disparando — verificá que `org.kde.plasma.core
+   2.0` esté disponible y revisá las trazas de plasmashell.
+
+5. **JSON corrupto**: el lector tiene `try/catch` y loggea el error.
+   Si un archivo está corrupto borralo:
+   ```bash
+   rm ~/.local/share/categorizedtodo/<nombre>.json
+   ```
+   El plasmoide arrancará con esa categoría vacía pero el resto se
+   conserva.
+
+6. **Reset completo**:
+   ```bash
+   rm -rf ~/.local/share/categorizedtodo
+   ```
+   Arranca de cero (la configuración del widget no se toca).
 
 ---
 
-## ¿Por qué no usamos un archivo propio?
+## Por qué no usamos otra librería
 
-Tres razones:
+- **Qt.labs.settings**: termina escribiendo a `QSettings` (INI) — el
+  mismo modelo "diferido" que ya nos falló con `Plasmoid.configuration`.
+- **`Qt.labs.platform` `FileDialog`**: requiere intervención del
+  usuario; no sirve para guardar automáticamente.
+- **`XMLHttpRequest` PUT a `file://`**: en Qt 5.15 la implementación
+  para escritura local no es confiable y depende del build.
+- **Plugin C++ propio**: agrega complejidad y dependencias de
+  compilación; el objetivo era mantenerse en QML puro.
 
-1. Plasma ya provee el mecanismo y se integra con el ciclo de vida del
-   widget (creación, configuración, eliminación). Si el plasmoide se
-   borra, también se borra su config — no quedan archivos huérfanos.
-2. Sin librerías externas, el QML puro **no puede escribir archivos**:
-   `XMLHttpRequest` solo lee, y no hay API estándar de write. La
-   alternativa sería `Qt.labs.settings`, pero también delega en
-   `QSettings` y termina siendo equivalente.
-3. El JSON exportado (botón **Exportar** de cada categoría) cubre el
-   caso de respaldo/migración granular sin necesidad de tocar el INI.
+`PlasmaCore.DataSource` con `engine: "executable"` ya viene con todas
+las instalaciones estándar de Plasma 5.27 — no es una "librería
+externa" sino parte del framework del entorno de ejecución del
+plasmoide.

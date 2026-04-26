@@ -69,22 +69,8 @@
             <max>1200</max>
         </entry>
 
-        <!-- Task data is stored under the same General group on purpose,
-             so writes flow through the same KConfigPropertyMap path that
-             Plasma actually wires up. See docs/PERSISTENCE.md. -->
-        <entry name="tasksJson" type="String">
-            <label>Serialized tasks (active). JSON array.</label>
-            <default>[]</default>
-        </entry>
-
-        <entry name="archivedJson" type="String">
-            <label>Serialized tasks (archived). JSON array.</label>
-            <default>[]</default>
-        </entry>
-
-        <entry name="nextId" type="Int">
-            <label>Next task id</label>
-            <default>1</default>
-        </entry>
+        <!-- Task data is NOT stored here. It lives in JSON files under
+             ~/.local/share/categorizedtodo/ — see docs/PERSISTENCE.md.
+             Only widget configuration (above) is kept by KConfig. -->
     </group>
 </kcfg>
