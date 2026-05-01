@@ -1,188 +1,33 @@
 /*
- * FullRepresentation.qml - popup with tabs for each category + Archive tab.
+ * FullRepresentation.qml - mode-aware dispatcher for the popup contents.
  *
- * Hosts all dialogs at the root level so they overlay the whole popup rather
- * than being nested inside a ListView delegate.
+ * Renders TodoView when mode == "todo", JiraView when mode == "jira".
+ * Switching is reactive: the StackLayout currentIndex follows the
+ * configuration change immediately.
  */
 
 import QtQuick 2.15
 import QtQuick.Layouts 1.15
-import QtQuick.Controls 2.15 as QQC2
 import org.kde.plasma.plasmoid 2.0
-import org.kde.plasma.core 2.0 as PlasmaCore
-import org.kde.plasma.components 3.0 as PlasmaComponents3
 
 Item {
     id: full
 
     property var store
+    property var jira
 
-    CategoryHelper { id: cats }
+    readonly property string mode: plasmoid.configuration.mode || "todo"
 
-    ColumnLayout {
+    StackLayout {
         anchors.fill: parent
-        anchors.margins: PlasmaCore.Units.smallSpacing
-        spacing: PlasmaCore.Units.smallSpacing
+        currentIndex: full.mode === "jira" ? 1 : 0
 
-        // -------- Tab bar --------
-        QQC2.TabBar {
-            id: tabs
-            Layout.fillWidth: true
-
-            Repeater {
-                model: cats.count()
-                QQC2.TabButton {
-                    id: catTab
-                    property int pending: (store.version, store.pendingCountForCategory(index))
-                    // Slightly more horizontal padding so the badge breathes.
-                    leftPadding: 8
-                    rightPadding: 8
-                    contentItem: RowLayout {
-                        spacing: 6
-                        Rectangle {
-                            Layout.preferredWidth: 8
-                            Layout.preferredHeight: 8
-                            radius: 4
-                            color: cats.color(index)
-                            Layout.alignment: Qt.AlignVCenter
-                        }
-                        PlasmaComponents3.Label {
-                            text: cats.name(index)
-                            elide: Text.ElideRight
-                            Layout.fillWidth: true
-                            Layout.alignment: Qt.AlignVCenter
-                            verticalAlignment: Text.AlignVCenter
-                        }
-                        TabCountBadge {
-                            visible: catTab.pending > 0
-                            count: catTab.pending
-                            badgeColor: cats.color(index)
-                            Layout.alignment: Qt.AlignVCenter
-                        }
-                    }
-                }
-            }
-
-            QQC2.TabButton {
-                id: archiveTab
-                leftPadding: 8
-                rightPadding: 8
-                contentItem: RowLayout {
-                    spacing: 6
-                    PlasmaCore.IconItem {
-                        source: "archive-insert"
-                        Layout.preferredWidth: 14
-                        Layout.preferredHeight: 14
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-                    PlasmaComponents3.Label {
-                        text: i18n("Archive")
-                        elide: Text.ElideRight
-                        Layout.fillWidth: true
-                        Layout.alignment: Qt.AlignVCenter
-                        verticalAlignment: Text.AlignVCenter
-                    }
-                    TabCountBadge {
-                        visible: (store.version, store.archived.length > 0)
-                        count: (store.version, store.archived.length)
-                        badgeColor: PlasmaCore.Theme.disabledTextColor
-                        Layout.alignment: Qt.AlignVCenter
-                    }
-                }
-            }
+        TodoView {
+            store: full.store
         }
 
-        // -------- Stacked views --------
-        StackLayout {
-            id: stack
-            Layout.fillWidth: true
-            Layout.fillHeight: true
-            currentIndex: tabs.currentIndex
-
-            Repeater {
-                model: cats.count()
-                CategoryView {
-                    store: full.store
-                    catIndex: index
-                    onNewTaskRequested: taskDialog.openNew(catIndex)
-                    onEditTaskRequested: taskDialog.openEdit(task)
-                    onEditSubtaskRequested: subDialog.openFor(task, subtask)
-                    onExportRequested: exportDialog.openFor(catIndex, categoryName)
-                    onImportRequested: importDialog.openFor(catIndex, categoryName)
-                }
-            }
-
-            ArchiveView {
-                store: full.store
-                onConfirmDelete: { confirmDeleteDlg.pendingId = id; confirmDeleteDlg.open(); }
-                onConfirmEmpty: confirmEmptyDlg.open()
-            }
-        }
-
-        // -------- Footer --------
-        RowLayout {
-            Layout.fillWidth: true
-            PlasmaComponents3.Label {
-                Layout.fillWidth: true
-                text: (store.version, i18np("%1 pending task in total",
-                                             "%1 pending tasks in total",
-                                             store.totalPending()))
-                opacity: 0.6
-                font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
-            }
-            PlasmaComponents3.ToolButton {
-                icon.name: "configure"
-                text: i18n("Configure…")
-                onClicked: plasmoid.action("configure").trigger()
-            }
-        }
-    }
-
-    // -------- Shared dialogs (rendered on top of the popup) --------
-    TaskEditDialog {
-        id: taskDialog
-        store: full.store
-    }
-
-    SubtaskEditDialog {
-        id: subDialog
-        store: full.store
-    }
-
-    ExportDialog {
-        id: exportDialog
-        store: full.store
-    }
-
-    ImportDialog {
-        id: importDialog
-        store: full.store
-    }
-
-    QQC2.Dialog {
-        id: confirmDeleteDlg
-        property int pendingId: 0
-        title: i18n("Delete task?")
-        modal: true
-        standardButtons: QQC2.Dialog.Yes | QQC2.Dialog.No
-        anchors.centerIn: parent
-        onAccepted: if (pendingId) store.deleteArchived(pendingId)
-        contentItem: PlasmaComponents3.Label {
-            text: i18n("This will permanently remove the task from the archive.")
-            wrapMode: Text.WordWrap
-        }
-    }
-
-    QQC2.Dialog {
-        id: confirmEmptyDlg
-        title: i18n("Empty archive?")
-        modal: true
-        standardButtons: QQC2.Dialog.Yes | QQC2.Dialog.No
-        anchors.centerIn: parent
-        onAccepted: store.clearArchive()
-        contentItem: PlasmaComponents3.Label {
-            text: i18n("This will permanently delete all archived tasks.")
-            wrapMode: Text.WordWrap
+        JiraView {
+            jira: full.jira
         }
     }
 }

@@ -10,6 +10,21 @@ que vienen con Plasma 5 y Qt 5.15 (`org.kde.plasma.*`, `org.kde.kirigami`,
 
 ---
 
+## Modos
+
+El plasmoide soporta dos modos (configurable en la pestaña *General*
+del diálogo de configuración):
+
+- **ToDo** (por defecto): la lista local con categorías, prioridades,
+  subtareas, archivado, export/import JSON. Persiste a archivos JSON
+  bajo `~/.local/share/categorizedtodo/`.
+- **Jira**: vista de **solo lectura** de las incidencias asignadas a
+  tu usuario en Jira Cloud. Configurás sitio + email + API token y
+  listo. Detalles, JQL de ejemplo y notas de seguridad en
+  [`docs/JIRA.md`](docs/JIRA.md).
+
+---
+
 ## Características
 
 ### Vista completa (popup)
@@ -124,9 +139,13 @@ package/
 │   │   ├── main.xml              # esquema KCfg: opciones + datos serializados
 │   │   └── config.qml            # define las pestañas del diálogo de config
 │   └── ui/
-│       ├── main.qml              # root: expone Compact y Full
-│       ├── CompactRepresentation.qml   # vista para el panel
-│       ├── FullRepresentation.qml      # popup con pestañas
+│       ├── main.qml              # root: dispatcher por modo
+│       ├── CompactRepresentation.qml   # vista para el panel (todo + jira)
+│       ├── FullRepresentation.qml      # popup dispatcher por modo
+│       ├── TodoView.qml          # popup contents en modo ToDo
+│       ├── JiraView.qml          # popup contents en modo Jira
+│       ├── JiraIssueItem.qml     # delegate de una incidencia
+│       ├── SwatchBadge.qml       # entrada del panel reusable
 │       ├── CategoryView.qml      # lista de tareas de una categoría
 │       ├── ArchiveView.qml       # lista de archivadas
 │       ├── TaskItem.qml          # delegate de una tarea (con subtareas)
@@ -139,11 +158,16 @@ package/
 │       ├── ImportDialog.qml      # diálogo de importación JSON por categoría
 │       ├── CategoryHelper.qml    # helper: lee nombres/colores desde config
 │       ├── FileStore.qml         # I/O atómico de archivos JSON propios
-│       ├── TaskStore.qml         # modelo en memoria + persistencia
-│       ├── configGeneral.qml     # pestaña General de la config
+│       ├── TaskStore.qml         # modelo en memoria + persistencia (todo)
+│       ├── JiraStore.qml         # cliente REST de Jira + cache JSON
+│       ├── configGeneral.qml     # pestaña General + selector de modo
 │       ├── configCategories.qml  # pestaña Categorías de la config
-│       └── configAppearance.qml  # pestaña Apariencia de la config
+│       ├── configAppearance.qml  # pestaña Apariencia de la config
+│       └── configJira.qml        # pestaña Jira (sitio, email, token, JQL)
 ├── install.sh
+├── docs/
+│   ├── PERSISTENCE.md            # cómo persiste el modo ToDo
+│   └── JIRA.md                   # cómo configurar el modo Jira
 └── README.md
 ```
 

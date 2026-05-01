@@ -17,4 +17,9 @@ ConfigModel {
         icon: "preferences-desktop-theme"
         source: "configAppearance.qml"
     }
+    ConfigCategory {
+        name: i18n("Jira")
+        icon: "go-bottom"
+        source: "configJira.qml"
+    }
 }

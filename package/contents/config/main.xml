@@ -8,6 +8,11 @@
     <kcfgfile name="categorizedtodorc"/>
 
     <group name="General">
+        <entry name="mode" type="String">
+            <label>Operating mode: "todo" (local task list) or "jira" (read assigned issues from Jira)</label>
+            <default>todo</default>
+        </entry>
+
         <entry name="categoryCount" type="Int">
             <label>Number of active categories (1..4)</label>
             <default>4</default>
@@ -72,5 +77,39 @@
         <!-- Task data is NOT stored here. It lives in JSON files under
              ~/.local/share/categorizedtodo/ — see docs/PERSISTENCE.md.
              Only widget configuration (above) is kept by KConfig. -->
+
+        <!-- Jira integration -->
+        <entry name="jiraSite" type="String">
+            <label>Jira Cloud site, e.g. https://your-company.atlassian.net</label>
+            <default></default>
+        </entry>
+        <entry name="jiraEmail" type="String">
+            <label>Jira account email (username for API token auth)</label>
+            <default></default>
+        </entry>
+        <entry name="jiraToken" type="String">
+            <label>Jira API token (NOT your password). Create one at id.atlassian.com. Stored in plain text under ~/.config — see docs/JIRA.md.</label>
+            <default></default>
+        </entry>
+        <entry name="jiraJql" type="String">
+            <label>JQL query for the issues to display</label>
+            <default>assignee = currentUser() AND statusCategory != Done ORDER BY priority DESC, updated DESC</default>
+        </entry>
+        <entry name="jiraRefreshMinutes" type="Int">
+            <label>Auto-refresh interval in minutes (0 = manual only)</label>
+            <default>5</default>
+            <min>0</min>
+            <max>1440</max>
+        </entry>
+        <entry name="jiraMaxResults" type="Int">
+            <label>Maximum number of issues to fetch per call</label>
+            <default>50</default>
+            <min>10</min>
+            <max>200</max>
+        </entry>
+        <entry name="jiraShowDone" type="Bool">
+            <label>Show the Done tab</label>
+            <default>false</default>
+        </entry>
     </group>
 </kcfg>

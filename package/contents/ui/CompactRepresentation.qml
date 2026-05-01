@@ -1,12 +1,14 @@
 /*
  * CompactRepresentation.qml - panel / system-tray view.
  *
- * Two layouts supported via plasmoid.configuration.panelCounterStyle:
- *   - "right":  [swatch] N    (swatch + count to the right; original layout)
- *   - "inside": [ N ]         (a bigger swatch with the count drawn inside)
+ * Two operating modes:
+ *   - "todo": one colored swatch + count per category.
+ *   - "jira": one colored swatch + count per Jira status category
+ *             (To Do / In Progress / [Done]).
  *
- * The text color of the counter is configurable per category via
- * plasmoid.configuration.panelCounterColors ("white" | "black").
+ * Inside each mode, the layout follows panelCounterStyle ("right" or
+ * "inside") and panelCounterColors (white | black per swatch) just as
+ * before. For Jira the per-swatch color falls back to white.
  */
 
 import QtQuick 2.15
@@ -18,21 +20,29 @@ import org.kde.plasma.components 3.0 as PlasmaComponents3
 Item {
     id: compact
     property var store
+    property var jira
 
-    // Depend on store.version so counts refresh whenever tasks change.
-    readonly property int _v: store ? store.version : 0
+    readonly property string mode: plasmoid.configuration.mode || "todo"
+    readonly property int _vTodo: store ? store.version : 0
+    readonly property int _vJira: jira ? jira.version : 0
 
     CategoryHelper { id: cats }
 
-    // Tunables used for sizing.
     readonly property int _smallSwatch: Math.max(10, PlasmaCore.Units.iconSizes.small - 2)
     readonly property int _bigSwatch:   Math.max(18, PlasmaCore.Units.iconSizes.medium - 2)
 
-    function _textColor(idx) {
+    function _todoTextColor(idx) {
         var arr = plasmoid.configuration.panelCounterColors || [];
         var v = arr[idx];
         return (v === "black") ? "black" : "white";
     }
+
+    // Static color triplet for Jira status categories.
+    readonly property var _jiraSlots: [
+        { key: "new",           label: i18n("Por hacer"),  color: "#42526e" },
+        { key: "indeterminate", label: i18n("En curso"),    color: "#f5a623" },
+        { key: "done",          label: i18n("Hechas"),      color: "#2ecc71" }
+    ]
 
     Layout.minimumWidth: row.implicitWidth + PlasmaCore.Units.smallSpacing * 2
     Layout.preferredWidth: Layout.minimumWidth
@@ -51,89 +61,40 @@ Item {
         anchors.centerIn: parent
         spacing: PlasmaCore.Units.smallSpacing * 2
 
+        // -------- TODO mode --------
         Repeater {
-            model: cats.count()
+            model: compact.mode === "todo" ? cats.count() : 0
+            delegate: SwatchBadge {
+                catIndex: index
+                color: cats.color(index)
+                count: (compact._vTodo, store ? store.pendingCountForCategory(index) : 0)
+                showZero: plasmoid.configuration.panelShowZero
+                label: cats.name(index)
+                showLabel: plasmoid.configuration.panelShowLabels
+                textColor: compact._todoTextColor(index)
+                insideMode: plasmoid.configuration.panelCounterStyle === "inside"
+                smallSwatch: compact._smallSwatch
+                bigSwatch: compact._bigSwatch
+            }
+        }
 
-            // Each entry is a Loader-like Item that renders the right layout
-            // based on the configured counter style.
-            Item {
-                id: badge
-                readonly property int catIndex: index
-                readonly property int pending: (compact._v, store.pendingCountForCategory(catIndex))
-                readonly property bool show: plasmoid.configuration.panelShowZero || pending > 0
-                readonly property bool insideMode: plasmoid.configuration.panelCounterStyle === "inside"
-
-                visible: show
-                implicitWidth: insideMode ? insideRow.implicitWidth : rightRow.implicitWidth
-                implicitHeight: insideMode ? insideRow.implicitHeight : rightRow.implicitHeight
-                Layout.preferredWidth: implicitWidth
-                Layout.preferredHeight: implicitHeight
-
-                // -------- "right" style: square + counter to its right --------
-                RowLayout {
-                    id: rightRow
-                    visible: !badge.insideMode
-                    spacing: PlasmaCore.Units.smallSpacing
-
-                    Rectangle {
-                        Layout.preferredWidth: compact._smallSwatch
-                        Layout.preferredHeight: compact._smallSwatch
-                        radius: 2
-                        color: cats.color(badge.catIndex)
-                        border.width: 1
-                        border.color: Qt.darker(color, 1.4)
-                    }
-
-                    PlasmaComponents3.Label {
-                        text: badge.pending
-                        color: compact._textColor(badge.catIndex)
-                        font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize + 2
-                        font.bold: true
-                    }
-
-                    PlasmaComponents3.Label {
-                        visible: plasmoid.configuration.panelShowLabels
-                        text: cats.name(badge.catIndex)
-                        font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
-                        opacity: 0.75
-                    }
-                }
-
-                // -------- "inside" style: bigger square with number inside --------
-                RowLayout {
-                    id: insideRow
-                    visible: badge.insideMode
-                    spacing: PlasmaCore.Units.smallSpacing
-
-                    Rectangle {
-                        id: bigSwatch
-                        // Slightly wider for two-digit counts so it doesn't clip.
-                        property bool wide: badge.pending >= 10
-                        Layout.preferredWidth: wide ? compact._bigSwatch + 8 : compact._bigSwatch
-                        Layout.preferredHeight: compact._bigSwatch
-                        radius: 3
-                        color: cats.color(badge.catIndex)
-                        border.width: 1
-                        border.color: Qt.darker(color, 1.4)
-
-                        PlasmaComponents3.Label {
-                            anchors.centerIn: parent
-                            text: badge.pending
-                            color: compact._textColor(badge.catIndex)
-                            font.bold: true
-                            font.pixelSize: Math.max(
-                                PlasmaCore.Theme.smallestFont.pixelSize,
-                                Math.round(compact._bigSwatch * 0.6))
-                        }
-                    }
-
-                    PlasmaComponents3.Label {
-                        visible: plasmoid.configuration.panelShowLabels
-                        text: cats.name(badge.catIndex)
-                        font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
-                        opacity: 0.75
-                    }
-                }
+        // -------- JIRA mode --------
+        Repeater {
+            model: compact.mode === "jira" ? compact._jiraSlots.length : 0
+            delegate: SwatchBadge {
+                // Hide "done" unless the user enabled it.
+                readonly property var slot: compact._jiraSlots[index]
+                visible: slot.key !== "done" || plasmoid.configuration.jiraShowDone
+                catIndex: index
+                color: slot.color
+                count: (compact._vJira, jira ? jira.countByStatusCategory(slot.key) : 0)
+                showZero: plasmoid.configuration.panelShowZero
+                label: slot.label
+                showLabel: plasmoid.configuration.panelShowLabels
+                textColor: "white"
+                insideMode: plasmoid.configuration.panelCounterStyle === "inside"
+                smallSwatch: compact._smallSwatch
+                bigSwatch: compact._bigSwatch
             }
         }
     }
