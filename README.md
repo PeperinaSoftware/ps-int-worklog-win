@@ -157,9 +157,9 @@ package/
 │       ├── ExportDialog.qml      # diálogo de exportación JSON por categoría
 │       ├── ImportDialog.qml      # diálogo de importación JSON por categoría
 │       ├── CategoryHelper.qml    # helper: lee nombres/colores desde config
-│       ├── FileStore.qml         # I/O atómico de archivos JSON propios
-│       ├── TaskStore.qml         # modelo en memoria + persistencia (todo)
-│       ├── JiraStore.qml         # cliente REST de Jira + cache JSON
+│       ├── Database.qml          # wrapper SQLite (QtQuick.LocalStorage)
+│       ├── TaskStore.qml         # modelo en memoria + persistencia (SQLite)
+│       ├── JiraStore.qml         # cliente REST de Jira + cache (SQLite)
 │       ├── configGeneral.qml     # pestaña General + selector de modo
 │       ├── configCategories.qml  # pestaña Categorías de la config
 │       ├── configAppearance.qml  # pestaña Apariencia de la config
@@ -175,15 +175,19 @@ package/
 
 ## Modelo de datos
 
-Las tareas se guardan como **archivos JSON** bajo
-`~/.local/share/categorizedtodo/`, uno por categoría más uno único de
-archivado. La configuración del widget (categorías, colores, opciones
-del panel) sigue en `Plasmoid.configuration`. Las escrituras son
-atómicas (temp file + `mv`) y no usan ninguna librería externa: la
-escritura va por `PlasmaCore.DataSource(engine: "executable")` que ya
-viene con Plasma 5.27, y la lectura por `XMLHttpRequest` síncrono. Los
-detalles —dónde vive cada archivo, cómo se escribe y cómo depurar—
-están en [`docs/PERSISTENCE.md`](docs/PERSISTENCE.md).
+Las tareas, subtareas, cache de Jira y credenciales de Jira se guardan
+en una base **SQLite** vía `QtQuick.LocalStorage 2.0` (incluido en
+Qt 5, no es una librería externa). El archivo `.sqlite` vive bajo
+`~/.local/share/KDE/plasmashell/QML/OfflineStorage/Databases/`. Cada
+mutación es una transacción atómica con `fsync()`, así que sobrevive a
+reinicios y crashes de plasmashell.
+
+La configuración del widget (modo, categorías, colores, opciones del
+panel) sigue en `Plasmoid.configuration`. Las **credenciales de Jira**
+se persisten en los dos lados a la vez: si Plasma las pierde, el
+plasmoide las recupera del SQLite en el siguiente arranque. Los
+detalles —esquema, ubicación exacta, backup, debugging— están en
+[`docs/PERSISTENCE.md`](docs/PERSISTENCE.md).
 
 Forma de cada tarea:
 

@@ -3,8 +3,11 @@
  *
  * Hosts both representations and owns the shared stores. The plasmoid
  * has two operating modes (configurable):
- *   - "todo": local task list (TaskStore + JSON files).
+ *   - "todo": local task list (TaskStore + SQLite).
  *   - "jira": read-only view of Jira issues assigned to the user.
+ *
+ * Persistence: SQLite via QtQuick.LocalStorage 2.15. See
+ * docs/PERSISTENCE.md for the storage path and layout.
  */
 
 import QtQuick 2.15
@@ -47,40 +50,41 @@ Item {
         return _store ? i18np("%1 pending task", "%1 pending tasks", _store.totalPending()) : "";
     }
 
-    FileStore {
-        id: _fileStore
+    Database {
+        id: _db
     }
 
     TaskStore {
         id: _store
         plasmoid: plasmoid
-        fileStore: _fileStore
+        database: _db
     }
 
     JiraStore {
         id: _jira
         plasmoid: plasmoid
-        fileStore: _fileStore
+        database: _db
     }
 
     Component.onCompleted: {
-        _fileStore.init();
+        _db.init();
         _store.load();
         _jira.init();
-        // If the user starts the plasmoid already in jira mode and has
-        // never fetched, kick off an initial fetch.
+
+        // The init() above may have written restored credentials back
+        // into Plasmoid.configuration; mirror them straight back into
+        // SQLite so the two layers stay in sync.
+        _jira.persistCredentials();
+
         if (root.mode === "jira" && _jira.lastFetchedAt === 0) {
             _jira.fetch();
         }
     }
 
-    Component.onDestruction: {
-        _store.flushNow();
-    }
-
-    // React to category changes (todo mode).
+    // React to category changes (todo mode) and Jira config changes.
     Connections {
         target: plasmoid.configuration
+
         function onCategoryCountChanged() {
             var n = Math.min(4, Math.max(1, plasmoid.configuration.categoryCount || 4));
             _store.reassignOutOfRangeCategories(n);
@@ -88,16 +92,17 @@ Item {
         function onCategoryNamesChanged() {
             _store.notifyCategoryNamesChanged();
         }
-        // Jira-side reactions.
-        function onJiraRefreshMinutesChanged() {
-            _jira.applyRefreshSchedule();
-        }
-        function onJiraJqlChanged()        { /* applied on next fetch */ }
-        function onJiraSiteChanged()       { /* same */ }
-        function onJiraEmailChanged()      { /* same */ }
-        function onJiraTokenChanged()      { /* same */ }
+
+        // Mirror Jira credentials to SQLite on every change so a
+        // Plasma config loss doesn't wipe them out.
+        function onJiraSiteChanged()  { _jira.persistCredentials(); }
+        function onJiraEmailChanged() { _jira.persistCredentials(); }
+        function onJiraTokenChanged() { _jira.persistCredentials(); }
+        function onJiraJqlChanged()   { _jira.persistCredentials(); }
+
+        function onJiraRefreshMinutesChanged() { _jira.applyRefreshSchedule(); }
+
         function onModeChanged() {
-            // Auto-fetch the first time the user enters jira mode.
             if (root.mode === "jira" && _jira.lastFetchedAt === 0 && !_jira.loading) {
                 _jira.fetch();
             }

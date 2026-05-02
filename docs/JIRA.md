@@ -92,21 +92,9 @@ y pegala en el plasmoide.
 
 ## Cache local
 
-La última respuesta exitosa se guarda en
-
-```
-~/.local/share/categorizedtodo/jira-cache.json
-```
-
-con la forma:
-
-```json
-{
-  "schema": "categorizedtodo.jira.v1",
-  "lastFetchedAt": 1736290800000,
-  "issues": [ {...}, {...} ]
-}
-```
+La última respuesta exitosa se guarda en la **base SQLite**
+(tabla `jira_cache`). Ver `docs/PERSISTENCE.md` para la ubicación
+exacta del archivo `.sqlite`.
 
 De esta forma, al abrir el popup mostramos las incidencias del último
 fetch al instante mientras corre la siguiente actualización en
@@ -115,7 +103,9 @@ background.
 Para limpiar el cache:
 
 ```bash
-rm ~/.local/share/categorizedtodo/jira-cache.json
+DIR=~/.local/share/KDE/plasmashell/QML/OfflineStorage/Databases
+DB=$(grep -l 'CategorizedToDo' "$DIR"/*.ini | sed 's/\.ini$/.sqlite/')
+sqlite3 "$DB" 'DELETE FROM jira_cache;'
 ```
 
 ---
@@ -137,10 +127,14 @@ labels, ocultar ceros) también se aplican en modo Jira.
 
 ## Seguridad
 
-- El **API token** se almacena en plano dentro de
-  `~/.config/plasma-org.kde.plasma.desktop-appletsrc`. Ese archivo
-  tiene permisos `0600` por defecto (sólo tu usuario lo lee), pero
-  cualquier proceso que corra con tu UID puede acceder.
+- El **API token** se almacena en dos lugares (resilientes por
+  separado):
+  1. `~/.config/plasma-org.kde.plasma.desktop-appletsrc` (KConfig
+     estándar de Plasma; lo escribe el diálogo *Configurar*).
+  2. La base SQLite del plasmoide, en la tabla `settings` con clave
+     `jira.token` (ver `docs/PERSISTENCE.md`).
+  Ambos archivos tienen permisos `0600` por defecto (sólo tu usuario
+  los lee), pero cualquier proceso corriendo con tu UID puede acceder.
 - Limitá el alcance del token: si Atlassian Cloud te ofrece scopes,
   elegí solo los que necesites (lectura de issues alcanza).
 - **Revocá** el token en

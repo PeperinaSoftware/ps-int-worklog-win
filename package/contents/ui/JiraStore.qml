@@ -1,31 +1,17 @@
 /*
  * JiraStore.qml
  *
- * Connects to a Jira Cloud REST API (v3), fetches the issues matching the
- * configured JQL, normalizes them and exposes them grouped by status
- * category. Caches the last successful response to a JSON file so the
+ * Connects to a Jira Cloud REST API (v3), fetches the issues matching
+ * the configured JQL, normalizes them and exposes them grouped by
+ * status category. Caches the last successful response in SQLite so the
  * popup is populated immediately on next launch.
  *
- * Auth: HTTP Basic with email + API token (NOT account password). API
- * tokens are created at https://id.atlassian.com/manage-profile/security/api-tokens
+ * Auth: HTTP Basic with email + API token. The credentials are mirrored
+ * to SQLite (settings table) every time they change in
+ * Plasmoid.configuration. On startup we restore any missing field from
+ * SQLite, so a Plasma config loss doesn't wipe out the Jira setup.
  *
- * No external libraries: uses only XMLHttpRequest, Qt.btoa and JSON.
- *
- * The fetched issue shape (after normalization):
- *   {
- *     key:       "PROJ-123",
- *     summary:   "Implement login screen",
- *     statusName:"In Progress",
- *     statusCat: "indeterminate" | "new" | "done" | "undefined",
- *     statusColor:"#yellow"     // from Jira's API (best effort)
- *     priority:  "Medium" | "" ,
- *     issuetype: "Story" | "Sub-task" | ...
- *     isSubtask: bool,
- *     parentKey: "PROJ-100" | "",
- *     parentSummary: "...",
- *     updated:   ISO date string,
- *     url:       "https://site/browse/PROJ-123"
- *   }
+ * No external libraries: XMLHttpRequest, Qt.btoa, JSON, LocalStorage.
  */
 
 import QtQuick 2.15
@@ -35,19 +21,17 @@ QtObject {
 
     // Configuration injected from main.qml.
     property var plasmoid: null
-    property var fileStore: null
+    property var database: null
 
-    // Reactive state.
     property var issues: []
     property bool loading: false
     property string lastError: ""
-    property real lastFetchedAt: 0    // ms since epoch (0 = never)
+    property real lastFetchedAt: 0
     property int version: 0
 
     signal changed()
     signal fetchFinished(bool ok)
 
-    // Auto-refresh timer; activated when the plasmoid is in jira mode.
     property var _refreshTimer: Timer {
         repeat: true
         running: false
@@ -59,6 +43,7 @@ QtObject {
     // ------------------------------------------------------------------
 
     function init() {
+        restoreCredentialsFromCache();
         loadCache();
         applyRefreshSchedule();
     }
@@ -75,26 +60,48 @@ QtObject {
     }
 
     // ------------------------------------------------------------------
-    // Cache
+    // Credentials mirror — defends against Plasmoid.configuration losses
+    // ------------------------------------------------------------------
+
+    // If any of the cfg_jira* fields is empty, try to restore it from
+    // the SQLite settings table. Called once on init.
+    function restoreCredentialsFromCache() {
+        if (!database || !database.ready || !plasmoid) return;
+        var pc = plasmoid.configuration;
+        if (!pc.jiraSite)  pc.jiraSite  = database.getSetting("jira.site",  "");
+        if (!pc.jiraEmail) pc.jiraEmail = database.getSetting("jira.email", "");
+        if (!pc.jiraToken) pc.jiraToken = database.getSetting("jira.token", "");
+        if (!pc.jiraJql)   pc.jiraJql   = database.getSetting("jira.jql",   "");
+    }
+
+    // Mirror the current cfg_jira* values to the SQLite settings table.
+    // Called from main.qml every time the user changes one of them.
+    function persistCredentials() {
+        if (!database || !database.ready || !plasmoid) return;
+        var pc = plasmoid.configuration;
+        database.setSetting("jira.site",  pc.jiraSite  || "");
+        database.setSetting("jira.email", pc.jiraEmail || "");
+        database.setSetting("jira.token", pc.jiraToken || "");
+        database.setSetting("jira.jql",   pc.jiraJql   || "");
+    }
+
+    // ------------------------------------------------------------------
+    // Cache (issue list)
     // ------------------------------------------------------------------
 
     function loadCache() {
-        if (!fileStore) return;
-        var data = fileStore.readJson("jira-cache.json", null);
-        if (data && Array.isArray(data.issues)) {
-            issues = data.issues;
-            lastFetchedAt = data.lastFetchedAt || 0;
+        if (!database || !database.ready) return;
+        var d = database.loadJiraIssues();
+        if (d.issues && d.issues.length > 0) {
+            issues = d.issues;
+            lastFetchedAt = d.fetchedAt;
             _bump();
         }
     }
 
     function saveCache() {
-        if (!fileStore) return;
-        fileStore.writeJson("jira-cache.json", {
-            schema: "categorizedtodo.jira.v1",
-            lastFetchedAt: lastFetchedAt,
-            issues: issues
-        });
+        if (!database || !database.ready) return;
+        database.saveJiraIssues(issues, lastFetchedAt);
     }
 
     // ------------------------------------------------------------------
@@ -182,8 +189,6 @@ QtObject {
         }
     }
 
-    // Test connection: hits /rest/api/3/myself and reports back via
-    // callback(ok, message). Doesn't touch the stored issue list.
     function testConnection(site, email, token, callback) {
         site = (site || "").trim().replace(/\/+$/, "");
         email = (email || "").trim();
@@ -224,8 +229,6 @@ QtObject {
     // Queries
     // ------------------------------------------------------------------
 
-    // Returns the issues whose status category matches `cat` ("new",
-    // "indeterminate", "done", "undefined").
     function issuesByStatusCategory(cat) {
         var out = [];
         for (var i = 0; i < issues.length; i++) {
@@ -247,7 +250,6 @@ QtObject {
     }
 
     function pendingCount() {
-        // Treat anything not "done" as pending.
         var c = 0;
         for (var i = 0; i < issues.length; i++) {
             if (issues[i].statusCat !== "done") c++;
@@ -279,7 +281,7 @@ QtObject {
             key: raw.key || "",
             summary: f.summary || "",
             statusName: status.name || "",
-            statusCat: sc.key || "undefined",   // "new" | "indeterminate" | "done" | "undefined"
+            statusCat: sc.key || "undefined",
             statusColor: sc.colorName || "",
             priority: prio.name || "",
             priorityIconUrl: prio.iconUrl || "",
@@ -299,7 +301,6 @@ QtObject {
             if (d.errorMessages && d.errorMessages.length) return d.errorMessages.join("; ");
             if (d.message) return d.message;
         } catch (e) { /* not json */ }
-        // Truncate huge error pages.
         return String(body).substring(0, 200);
     }
 }
