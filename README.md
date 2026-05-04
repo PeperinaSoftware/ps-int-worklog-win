@@ -106,10 +106,41 @@ Pestaña **Apariencia** (controla la vista compacta):
 
 Requisitos: Kubuntu 24.04 con Plasma 5.27 y Qt 5.15 (vienen por defecto).
 
+### Dependencias QML
+
+El plasmoide depende de tres módulos QML que **a veces no se instalan
+con Plasma por defecto**:
+
+| Módulo QML                 | Paquete (Debian/Ubuntu)              |
+| -------------------------- | ------------------------------------ |
+| `QtQuick.LocalStorage`     | `qml-module-qtquick-localstorage`    |
+| `QtQuick.Controls 2`       | `qml-module-qtquick-controls2`       |
+| `Qt.labs.platform`         | `qml-module-qt-labs-platform`        |
+
+El `install.sh` los detecta automáticamente y ofrece instalarlos vía
+`sudo apt install`. Si preferís hacerlo a mano:
+
+```bash
+sudo apt install qml-module-qtquick-localstorage \
+                 qml-module-qtquick-controls2 \
+                 qml-module-qt-labs-platform
+```
+
+En Fedora: `sudo dnf install qt5-qtdeclarative qt5-qtquickcontrols2`
+En Arch: `sudo pacman -S qt5-declarative qt5-quickcontrols2`
+
+> **Nota**: si al cargar el plasmoide ves el error
+> `module "QtQuick.LocalStorage" is not installed`, instalá el paquete
+> de arriba y reiniciá plasmashell con
+> `kquitapp5 plasmashell && kstart5 plasmashell`.
+
+### Instalar el plasmoide
+
 ```bash
 # Desde el clon del repo
-./install.sh            # instala para el usuario actual
+./install.sh            # instala para el usuario actual (chequea deps)
 ./install.sh --dev      # en su lugar, hace un symlink (modo desarrollo)
+./install.sh --no-deps  # salta el chequeo de dependencias
 ./install.sh --uninstall
 ```
 

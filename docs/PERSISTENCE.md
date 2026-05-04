@@ -9,8 +9,10 @@ depurar / respaldar / migrar**. Aplica a Kubuntu 24.04 con KDE Plasma
 
 ## TL;DR
 
-- **Backend**: **SQLite** vía `QtQuick.LocalStorage 2.0` (incluido en
-  Qt 5 — no es una librería externa).
+- **Backend**: **SQLite** vía `QtQuick.LocalStorage 2.0` (parte de
+  Qt 5; en Kubuntu/Debian viene en el paquete
+  `qml-module-qtquick-localstorage` que **a veces no está instalado
+  por defecto** — el `install.sh` lo detecta y ofrece instalarlo).
 - **Archivo**:
   ```
   ~/.local/share/KDE/plasmashell/QML/OfflineStorage/Databases/<hash>.sqlite
@@ -180,6 +182,15 @@ a inyectar en `Plasmoid.configuration`.
 ---
 
 ## Debug
+
+0. **`module "QtQuick.LocalStorage" is not installed`**
+   Falta el paquete del módulo QML. Instalalo con:
+   ```bash
+   sudo apt install qml-module-qtquick-localstorage
+   kquitapp5 plasmashell && kstart5 plasmashell
+   ```
+   El `install.sh` chequea esto antes de instalar y ofrece hacerlo
+   automáticamente.
 
 1. **¿La DB se creó?**
    ```bash
