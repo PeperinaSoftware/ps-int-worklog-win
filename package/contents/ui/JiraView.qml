@@ -1,11 +1,9 @@
 /*
  * JiraView.qml - the popup contents when the plasmoid is in "jira" mode.
  *
- * Layout:
- *   Header: status text (loading / last fetched / error) + Refresh button
- *   Tabs:   To Do | In Progress | (Done)  — one per Jira status category
- *   Body:   ListView of JiraIssueItem (filtered by tab)
- *   Footer: total count + Configure button
+ * Tabs come from the user-defined Jira categories (1..4), each with its
+ * own name, color and filter (issuetype / status / statusCategory /
+ * priority). See configJiraCategories.qml.
  */
 
 import QtQuick 2.15
@@ -19,12 +17,21 @@ Item {
     id: view
     property var jira
 
-    // Re-evaluate when the store mutates.
     readonly property int _v: jira ? jira.version : 0
+    readonly property int categoryCount:
+        Math.min(4, Math.max(1, plasmoid.configuration.jiraCategoryCount | 0 || 3))
 
     function _formatDate(ms) {
         if (!ms) return "";
         return Qt.formatDateTime(new Date(ms), Qt.DefaultLocaleShortDate);
+    }
+    function _categoryName(i) {
+        var arr = plasmoid.configuration.jiraCategoryNames || [];
+        return arr[i] || qsTr("Cat. %1").arg(i + 1);
+    }
+    function _categoryColor(i) {
+        var arr = plasmoid.configuration.jiraCategoryColors || [];
+        return arr[i] || "#7f8c8d";
     }
 
     ColumnLayout {
@@ -53,7 +60,9 @@ Item {
                     if (jira.loading) return i18n("Cargando…");
                     if (jira.lastError) return jira.lastError;
                     if (jira.lastFetchedAt > 0)
-                        return i18n("Actualizado %1", view._formatDate(jira.lastFetchedAt));
+                        return i18n("Actualizado %1 — %2 incidencias",
+                                    view._formatDate(jira.lastFetchedAt),
+                                    (view._v, jira.totalCount()));
                     return i18n("Sin datos. Pulsá ↻ para cargar.");
                 }
                 elide: Text.ElideRight
@@ -72,107 +81,90 @@ Item {
             }
         }
 
-        // -------- Tabs (only show "Done" if user enabled it) --------
+        // -------- Tabs (one per Jira category) --------
         QQC2.TabBar {
             id: tabs
             Layout.fillWidth: true
 
-            QQC2.TabButton {
-                contentItem: RowLayout {
-                    spacing: 6
-                    Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: "#42526e" }
-                    PlasmaComponents3.Label {
-                        text: i18n("Por hacer")
-                        elide: Text.ElideRight
-                    }
-                    TabCountBadge {
-                        property int catCount: (view._v, jira ? jira.countByStatusCategory("new") : 0)
-                        visible: catCount > 0
-                        count: catCount
-                        badgeColor: "#42526e"
-                    }
-                }
-            }
-
-            QQC2.TabButton {
-                contentItem: RowLayout {
-                    spacing: 6
-                    Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: "#f5a623" }
-                    PlasmaComponents3.Label {
-                        text: i18n("En curso")
-                        elide: Text.ElideRight
-                    }
-                    TabCountBadge {
-                        property int catCount: (view._v, jira ? jira.countByStatusCategory("indeterminate") : 0)
-                        visible: catCount > 0
-                        count: catCount
-                        badgeColor: "#f5a623"
-                    }
-                }
-            }
-
-            QQC2.TabButton {
-                visible: plasmoid.configuration.jiraShowDone
-                contentItem: RowLayout {
-                    spacing: 6
-                    Rectangle { Layout.preferredWidth: 8; Layout.preferredHeight: 8; radius: 4; color: "#2ecc71" }
-                    PlasmaComponents3.Label {
-                        text: i18n("Hechas")
-                        elide: Text.ElideRight
-                    }
-                    TabCountBadge {
-                        property int catCount: (view._v, jira ? jira.countByStatusCategory("done") : 0)
-                        visible: catCount > 0
-                        count: catCount
-                        badgeColor: "#2ecc71"
+            Repeater {
+                model: view.categoryCount
+                QQC2.TabButton {
+                    id: tabBtn
+                    leftPadding: 8
+                    rightPadding: 8
+                    property int catCount: (view._v, jira ? jira.countByJiraCategory(index) : 0)
+                    contentItem: RowLayout {
+                        spacing: 6
+                        Rectangle {
+                            Layout.preferredWidth: 8
+                            Layout.preferredHeight: 8
+                            radius: 4
+                            color: view._categoryColor(index)
+                            Layout.alignment: Qt.AlignVCenter
+                        }
+                        PlasmaComponents3.Label {
+                            text: view._categoryName(index)
+                            elide: Text.ElideRight
+                            Layout.fillWidth: true
+                            Layout.alignment: Qt.AlignVCenter
+                            verticalAlignment: Text.AlignVCenter
+                        }
+                        TabCountBadge {
+                            visible: tabBtn.catCount > 0
+                            count: tabBtn.catCount
+                            badgeColor: view._categoryColor(index)
+                            Layout.alignment: Qt.AlignVCenter
+                        }
                     }
                 }
             }
         }
 
-        // -------- Body: list --------
-        QQC2.ScrollView {
+        // -------- Body: list per tab --------
+        StackLayout {
+            id: stack
             Layout.fillWidth: true
             Layout.fillHeight: true
-            clip: true
+            currentIndex: tabs.currentIndex
 
-            ListView {
-                id: list
-                spacing: 4
-                model: {
-                    if (!jira) return [];
-                    view._v;        // dependency
-                    var cat = "new";
-                    if (tabs.currentIndex === 1) cat = "indeterminate";
-                    else if (tabs.currentIndex === 2) cat = "done";
-                    return jira.issuesByStatusCategory(cat);
-                }
-                delegate: JiraIssueItem {
-                    width: list.width
-                    issue: modelData
-                }
+            Repeater {
+                model: view.categoryCount
+                Item {
+                    QQC2.ScrollView {
+                        anchors.fill: parent
+                        clip: true
+                        ListView {
+                            id: list
+                            spacing: 4
+                            model: (view._v, jira ? jira.issuesByJiraCategory(index) : [])
+                            delegate: JiraIssueItem {
+                                width: list.width
+                                issue: modelData
+                            }
 
-                // Empty placeholder.
-                PlasmaComponents3.Label {
-                    anchors.centerIn: parent
-                    visible: list.count === 0 && jira && !jira.loading
-                    width: parent.width - 40
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
-                    opacity: 0.55
-                    text: {
-                        if (!jira) return "";
-                        if (jira.lastError) return jira.lastError;
-                        if (jira.lastFetchedAt === 0)
-                            return i18n("Aún no se cargaron incidencias. Pulsá el botón de refrescar.");
-                        return i18n("Sin incidencias en esta vista.");
+                            PlasmaComponents3.Label {
+                                anchors.centerIn: parent
+                                visible: list.count === 0 && jira && !jira.loading
+                                width: parent.width - 40
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                opacity: 0.55
+                                text: {
+                                    if (!jira) return "";
+                                    if (jira.lastError) return jira.lastError;
+                                    if (jira.lastFetchedAt === 0)
+                                        return i18n("Aún no se cargaron incidencias. Pulsá el botón de refrescar.");
+                                    return i18n("Sin incidencias en esta categoría.");
+                                }
+                            }
+
+                            PlasmaComponents3.BusyIndicator {
+                                anchors.centerIn: parent
+                                running: jira && jira.loading && list.count === 0
+                                visible: running
+                            }
+                        }
                     }
-                }
-
-                PlasmaComponents3.BusyIndicator {
-                    anchors.centerIn: parent
-                    running: jira && jira.loading && list.count === 0
-                    visible: running
                 }
             }
         }
@@ -183,7 +175,9 @@ Item {
 
             PlasmaComponents3.Label {
                 Layout.fillWidth: true
-                text: jira ? i18np("%1 incidencia", "%1 incidencias", (view._v, jira.totalCount())) : ""
+                text: jira ? i18np("%1 incidencia en total",
+                                   "%1 incidencias en total",
+                                   (view._v, jira.totalCount())) : ""
                 opacity: 0.6
                 font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
             }

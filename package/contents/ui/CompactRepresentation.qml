@@ -2,13 +2,11 @@
  * CompactRepresentation.qml - panel / system-tray view.
  *
  * Two operating modes:
- *   - "todo": one colored swatch + count per category.
- *   - "jira": one colored swatch + count per Jira status category
- *             (To Do / In Progress / [Done]).
+ *   - "todo": one swatch + count per ToDo category.
+ *   - "jira": one swatch + count per Jira category (configurable).
  *
  * Inside each mode, the layout follows panelCounterStyle ("right" or
- * "inside") and panelCounterColors (white | black per swatch) just as
- * before. For Jira the per-swatch color falls back to white.
+ * "inside") and panelCounterColors (white | black per swatch).
  */
 
 import QtQuick 2.15
@@ -37,12 +35,22 @@ Item {
         return (v === "black") ? "black" : "white";
     }
 
-    // Static color triplet for Jira status categories.
-    readonly property var _jiraSlots: [
-        { key: "new",           label: i18n("Por hacer"),  color: "#42526e" },
-        { key: "indeterminate", label: i18n("En curso"),    color: "#f5a623" },
-        { key: "done",          label: i18n("Hechas"),      color: "#2ecc71" }
-    ]
+    function _jiraTextColor(idx) {
+        var arr = plasmoid.configuration.jiraCategoryTextColors || [];
+        var v = arr[idx];
+        return (v === "black") ? "black" : "white";
+    }
+    function _jiraName(i) {
+        var arr = plasmoid.configuration.jiraCategoryNames || [];
+        return arr[i] || qsTr("Cat. %1").arg(i + 1);
+    }
+    function _jiraColor(i) {
+        var arr = plasmoid.configuration.jiraCategoryColors || [];
+        return arr[i] || "#7f8c8d";
+    }
+    function _jiraCount() {
+        return Math.min(4, Math.max(1, plasmoid.configuration.jiraCategoryCount | 0 || 3));
+    }
 
     Layout.minimumWidth: row.implicitWidth + PlasmaCore.Units.smallSpacing * 2
     Layout.preferredWidth: Layout.minimumWidth
@@ -80,18 +88,15 @@ Item {
 
         // -------- JIRA mode --------
         Repeater {
-            model: compact.mode === "jira" ? compact._jiraSlots.length : 0
+            model: compact.mode === "jira" ? compact._jiraCount() : 0
             delegate: SwatchBadge {
-                // Hide "done" unless the user enabled it.
-                readonly property var slot: compact._jiraSlots[index]
-                visible: slot.key !== "done" || plasmoid.configuration.jiraShowDone
                 catIndex: index
-                color: slot.color
-                count: (compact._vJira, jira ? jira.countByStatusCategory(slot.key) : 0)
+                color: compact._jiraColor(index)
+                count: (compact._vJira, jira ? jira.countByJiraCategory(index) : 0)
                 showZero: plasmoid.configuration.panelShowZero
-                label: slot.label
+                label: compact._jiraName(index)
                 showLabel: plasmoid.configuration.panelShowLabels
-                textColor: "white"
+                textColor: compact._jiraTextColor(index)
                 insideMode: plasmoid.configuration.panelCounterStyle === "inside"
                 smallSwatch: compact._smallSwatch
                 bigSwatch: compact._bigSwatch

@@ -192,9 +192,10 @@ package/
 │       ├── TaskStore.qml         # modelo en memoria + persistencia (SQLite)
 │       ├── JiraStore.qml         # cliente REST de Jira + cache (SQLite)
 │       ├── configGeneral.qml     # pestaña General + selector de modo
-│       ├── configCategories.qml  # pestaña Categorías de la config
-│       ├── configAppearance.qml  # pestaña Apariencia de la config
-│       └── configJira.qml        # pestaña Jira (sitio, email, token, JQL)
+│       ├── configCategories.qml  # pestaña Categorías ToDo
+│       ├── configAppearance.qml  # pestaña Apariencia
+│       ├── configJira.qml        # pestaña Jira (sitio, email, token, JQL)
+│       └── configJiraCategories.qml # pestaña Categorías Jira (filtros + colores)
 ├── install.sh
 ├── docs/
 │   ├── PERSISTENCE.md            # cómo persiste el modo ToDo

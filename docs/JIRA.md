@@ -14,13 +14,33 @@ opción y consideraciones de seguridad.
 
 ## Qué se muestra
 
-En modo Jira, el popup tiene tres pestañas (la tercera es opcional):
+En modo Jira, el popup tiene **pestañas configurables** (1 a 4). Por
+defecto vienen las tres clásicas:
 
-- **Por hacer** — incidencias con `statusCategory = "new"` (todo lo
-  que aún no se empezó).
-- **En curso** — `statusCategory = "indeterminate"` (en progreso).
-- **Hechas** — `statusCategory = "done"`. Oculta por defecto;
-  habilítala desde *Configurar → Jira → "Mostrar pestaña Hechas"*.
+- **Por hacer** (`statusCategory = "new"`)
+- **En curso** (`statusCategory = "indeterminate"`)
+- **Hechas** (`statusCategory = "done"`)
+
+Pero podés editar cada una desde *Configurar → Categorías Jira*: nombre,
+color, color de letra (blanco/negro) y filtro. El filtro acepta uno de
+estos campos:
+
+| Campo             | Coincide con              | Ejemplo de valores                  |
+| ----------------- | ------------------------- | ----------------------------------- |
+| `statusCategory`  | `status.statusCategory.key` | `new`, `indeterminate`, `done`     |
+| `status`          | `status.name`             | `To Do`, `In Progress`, `Code Review` |
+| `issuetype`       | `issuetype.name`          | `Story`, `Sub-task`, `Bug`, `Task` |
+| `priority`        | `priority.name`           | `Highest`, `High`, `Medium`        |
+| (sin filtro)      | todas                     | —                                   |
+
+Para hacer **OR** entre varios valores, separalos con punto y coma:
+`In Progress; Code Review`. Por ejemplo, una pestaña podría llamarse
+*"Mis bugs urgentes"* con filtro `priority = Highest; High` (y el JQL
+podría limitar a `issuetype = Bug` aparte).
+
+La cantidad activa se ajusta en *Configurar → Jira → "Categorías Jira
+(pestañas)"* (1 a 4). En el panel, los cuadrados respetan el color y
+el color de letra elegidos (idéntico al modo ToDo).
 
 Cada incidencia muestra:
 
@@ -113,15 +133,11 @@ sqlite3 "$DB" 'DELETE FROM jira_cache;'
 ## Vista compacta (panel)
 
 En modo Jira, la vista compacta sigue el mismo formato que en modo
-ToDo: cuadrados de color con un contador, en horizontal. Los slots
-son:
-
-- 🔵 *Por hacer* — `#42526e`
-- 🟡 *En curso* — `#f5a623`
-- 🟢 *Hechas*   — `#2ecc71` (sólo si activaste la pestaña Hechas)
-
-Las opciones de la pestaña *Apariencia* (estilo del contador, mostrar
-labels, ocultar ceros) también se aplican en modo Jira.
+ToDo: un cuadrado coloreado por categoría con su contador. Los
+colores y el color de letra (blanco/negro) son los que configuraste
+en *Categorías Jira*. Las opciones de la pestaña *Apariencia*
+(estilo del contador `right` / `inside`, mostrar labels, ocultar
+ceros) también se aplican.
 
 ---
 
@@ -163,12 +179,47 @@ funciona pero es **mucho** menos seguro que API tokens; usá un
 - **Ver el último error** en el popup: si una llamada falla, el
   encabezado de la pestaña Jira muestra el motivo (HTTP code +
   mensaje).
-- **Logs QML**:
+
+- **Logs detallados** (activados por defecto, toggle en *Configurar →
+  Jira → "Loggear fetch/parse/filter…"*):
+
   ```bash
-  journalctl --user -f -u plasma-plasmashell.service | grep -i jira
+  journalctl --user -f _COMM=plasmashell | grep '\[JiraStore\]'
   ```
-  El `JiraStore` no es muy locuaz, pero los `console.warn(...)`
-  aparecen ahí.
+
+  Lo que vas a ver en cada fetch:
+
+  ```
+  [JiraStore] init: 0 cached issue(s); lastFetchedAt=never
+  [JiraStore] auto-refresh scheduled every 5 min
+  [JiraStore] fetch start: GET https://foo.atlassian.net/rest/api/3/search
+  [JiraStore]   JQL : assignee = currentUser() AND statusCategory != Done
+  [JiraStore]   max : 50, fields: summary,status,priority,issuetype,parent,updated
+  [JiraStore] fetch ok in 312 ms — 4 issue(s) (total in JQL: 4)
+  [JiraStore]   - PROJ-101 [Story] (In Progress / indeterminate) {High} — Login screen
+  [JiraStore]   - PROJ-102 [Sub-task] (To Do / new) {Medium} — Add tests  ↳ parent=PROJ-101
+  [JiraStore]   - PROJ-103 [Bug] (Code Review / indeterminate) {High} — Fix typo
+  [JiraStore]   - PROJ-104 [Task] (To Do / new) {Low} — Update docs
+  [JiraStore] category #0 'Por hacer' [statusCategory = new]: 2 issue(s)
+  [JiraStore] category #1 'En curso' [statusCategory = indeterminate]: 2 issue(s)
+  [JiraStore] category #2 'Hechas' [statusCategory = done]: 0 issue(s)
+  ```
+
+  Si la JQL no devuelve nada vas a ver:
+
+  ```
+  [JiraStore] fetch ok in 245 ms — 0 issue(s) (total in JQL: 0)
+  [JiraStore]   ⚠  JQL devolvió 0 resultados. Probalo en la UI de Jira para confirmar que la consulta es correcta.
+  ```
+
+  Errores de credenciales / red / JQL inválida los emite con
+  `console.warn` (siempre se loggean, sin importar el toggle):
+
+  ```
+  [JiraStore] auth error: HTTP 401
+  [JiraStore] HTTP 400: <mensaje del servidor>
+  [JiraStore] (HTTP 400 suele indicar un JQL inválido — revisá la consulta)
+  ```
 - **Probar a mano** la misma llamada que hace el plasmoide:
   ```bash
   curl -s -u "you@example.com:YOUR_TOKEN" \

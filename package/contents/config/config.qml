@@ -22,4 +22,9 @@ ConfigModel {
         icon: "go-bottom"
         source: "configJira.qml"
     }
+    ConfigCategory {
+        name: i18n("Categorías Jira")
+        icon: "preferences-desktop-color"
+        source: "configJiraCategories.qml"
+    }
 }

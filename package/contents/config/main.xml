@@ -108,8 +108,53 @@
             <max>200</max>
         </entry>
         <entry name="jiraShowDone" type="Bool">
-            <label>Show the Done tab</label>
+            <label>(legacy) Show the Done tab — superseded by jiraCategory* entries.</label>
             <default>false</default>
+        </entry>
+
+        <!-- Configurable Jira categories (tabs in the popup, swatches in
+             the panel). Each i-th element of the parallel StringLists
+             describes one category. -->
+        <entry name="jiraCategoryCount" type="Int">
+            <label>Number of Jira categories (tabs)</label>
+            <default>3</default>
+            <min>1</min>
+            <max>4</max>
+        </entry>
+        <entry name="jiraCategoryNames" type="StringList">
+            <label>Display name of each Jira category</label>
+            <default>Por hacer,En curso,Hechas,Otras</default>
+        </entry>
+        <entry name="jiraCategoryColors" type="StringList">
+            <label>Hex color of each Jira category</label>
+            <default>#42526e,#f5a623,#2ecc71,#9b59b6</default>
+        </entry>
+        <entry name="jiraCategoryTextColors" type="StringList">
+            <label>"white" or "black" text color for each Jira category swatch</label>
+            <default>white,white,white,white</default>
+        </entry>
+        <!-- Filter field per category: one of
+             "statusCategory" (new/indeterminate/done),
+             "issuetype"      (Story/Bug/Task/Sub-task/...),
+             "status"         (To Do/In Progress/Done/Code Review/...),
+             "priority"       (Highest/High/Medium/Low/Lowest),
+             ""               (no filter -> matches all issues). -->
+        <entry name="jiraCategoryFilterFields" type="StringList">
+            <label>Field that each Jira category filters on</label>
+            <default>statusCategory,statusCategory,statusCategory,</default>
+        </entry>
+        <!-- Filter value per category. Comma-separated values inside a
+             single entry mean "match any of these" — but since this list
+             itself is comma-separated (StringList), use ';' as the
+             intra-entry separator. -->
+        <entry name="jiraCategoryFilterValues" type="StringList">
+            <label>Value to match for each Jira category (use ';' for OR)</label>
+            <default>new,indeterminate,done,</default>
+        </entry>
+
+        <entry name="jiraDebug" type="Bool">
+            <label>Log Jira fetch / parse / filter details to plasmashell stdout</label>
+            <default>true</default>
         </entry>
     </group>
 </kcfg>

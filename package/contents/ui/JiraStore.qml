@@ -2,16 +2,17 @@
  * JiraStore.qml
  *
  * Connects to a Jira Cloud REST API (v3), fetches the issues matching
- * the configured JQL, normalizes them and exposes them grouped by
- * status category. Caches the last successful response in SQLite so the
- * popup is populated immediately on next launch.
+ * the configured JQL, normalizes them and exposes them grouped by the
+ * user-defined Jira categories. Caches the last successful response in
+ * SQLite so the popup is populated immediately on next launch.
  *
- * Auth: HTTP Basic with email + API token. The credentials are mirrored
- * to SQLite (settings table) every time they change in
- * Plasmoid.configuration. On startup we restore any missing field from
- * SQLite, so a Plasma config loss doesn't wipe out the Jira setup.
+ * Auth: HTTP Basic with email + API token. Credentials are mirrored to
+ * SQLite so a Plasma config loss doesn't wipe them out.
  *
- * No external libraries: XMLHttpRequest, Qt.btoa, JSON, LocalStorage.
+ * Debug logs (enabled by default via plasmoid.configuration.jiraDebug)
+ * surface the URL, JQL, HTTP status, per-issue summary and the count
+ * each category ended up with. Read them with:
+ *   journalctl --user -f _COMM=plasmashell | grep -i jirastore
  */
 
 import QtQuick 2.15
@@ -19,7 +20,6 @@ import QtQuick 2.15
 QtObject {
     id: store
 
-    // Configuration injected from main.qml.
     property var plasmoid: null
     property var database: null
 
@@ -46,6 +46,8 @@ QtObject {
         restoreCredentialsFromCache();
         loadCache();
         applyRefreshSchedule();
+        _log("init: " + issues.length + " cached issue(s); lastFetchedAt=" +
+             (lastFetchedAt ? new Date(lastFetchedAt).toISOString() : "never"));
     }
 
     function applyRefreshSchedule() {
@@ -54,28 +56,28 @@ QtObject {
         if (minutes > 0) {
             _refreshTimer.interval = minutes * 60 * 1000;
             _refreshTimer.running = true;
+            _log("auto-refresh scheduled every " + minutes + " min");
         } else {
             _refreshTimer.running = false;
+            _log("auto-refresh disabled (manual only)");
         }
     }
 
     // ------------------------------------------------------------------
-    // Credentials mirror — defends against Plasmoid.configuration losses
+    // Credentials mirror
     // ------------------------------------------------------------------
 
-    // If any of the cfg_jira* fields is empty, try to restore it from
-    // the SQLite settings table. Called once on init.
     function restoreCredentialsFromCache() {
         if (!database || !database.ready || !plasmoid) return;
         var pc = plasmoid.configuration;
-        if (!pc.jiraSite)  pc.jiraSite  = database.getSetting("jira.site",  "");
-        if (!pc.jiraEmail) pc.jiraEmail = database.getSetting("jira.email", "");
-        if (!pc.jiraToken) pc.jiraToken = database.getSetting("jira.token", "");
-        if (!pc.jiraJql)   pc.jiraJql   = database.getSetting("jira.jql",   "");
+        var restored = [];
+        if (!pc.jiraSite)  { var s = database.getSetting("jira.site",  ""); if (s) { pc.jiraSite  = s; restored.push("site"); } }
+        if (!pc.jiraEmail) { var e = database.getSetting("jira.email", ""); if (e) { pc.jiraEmail = e; restored.push("email"); } }
+        if (!pc.jiraToken) { var t = database.getSetting("jira.token", ""); if (t) { pc.jiraToken = t; restored.push("token"); } }
+        if (!pc.jiraJql)   { var j = database.getSetting("jira.jql",   ""); if (j) { pc.jiraJql   = j; restored.push("jql"); } }
+        if (restored.length) _log("restored from cache: " + restored.join(", "));
     }
 
-    // Mirror the current cfg_jira* values to the SQLite settings table.
-    // Called from main.qml every time the user changes one of them.
     function persistCredentials() {
         if (!database || !database.ready || !plasmoid) return;
         var pc = plasmoid.configuration;
@@ -109,7 +111,10 @@ QtObject {
     // ------------------------------------------------------------------
 
     function fetch() {
-        if (loading) return;
+        if (loading) {
+            _log("fetch skipped: already loading");
+            return;
+        }
         if (!plasmoid) return;
 
         var site  = (plasmoid.configuration.jiraSite || "").trim().replace(/\/+$/, "");
@@ -120,12 +125,15 @@ QtObject {
 
         if (!site || !email || !token) {
             lastError = qsTr("Configurá la URL del sitio, el email y el API token de Jira.");
+            _log("fetch aborted: missing credentials (site=" + (!!site) +
+                 " email=" + (!!email) + " token=" + (!!token) + ")");
             _bump();
             fetchFinished(false);
             return;
         }
         if (!jql) {
             lastError = qsTr("La consulta JQL está vacía.");
+            _log("fetch aborted: empty JQL");
             _bump();
             fetchFinished(false);
             return;
@@ -139,6 +147,11 @@ QtObject {
         var url = site + "/rest/api/3/search?jql=" + encodeURIComponent(jql)
                 + "&maxResults=" + max + "&fields=" + fields;
 
+        _log("fetch start: GET " + site + "/rest/api/3/search");
+        _log("  JQL : " + jql);
+        _log("  max : " + max + ", fields: " + fields);
+
+        var t0 = Date.now();
         var xhr = new XMLHttpRequest();
         xhr.open("GET", url, true);
         xhr.setRequestHeader("Authorization", "Basic " + Qt.btoa(email + ":" + token));
@@ -146,6 +159,8 @@ QtObject {
         xhr.onreadystatechange = function() {
             if (xhr.readyState !== XMLHttpRequest.DONE) return;
             store.loading = false;
+            var elapsed = Date.now() - t0;
+
             if (xhr.status === 200) {
                 try {
                     var data = JSON.parse(xhr.responseText);
@@ -159,22 +174,41 @@ QtObject {
                     store.lastError = "";
                     store.saveCache();
                     store._bump();
+
+                    _log("fetch ok in " + elapsed + " ms — " + out.length +
+                         " issue(s) (total in JQL: " + (data.total || "?") + ")");
+                    if (out.length === 0) {
+                        _log("  ⚠  JQL devolvió 0 resultados. Probalo en la UI de Jira " +
+                             "para confirmar que la consulta es correcta.");
+                    } else {
+                        store._logIssues(out);
+                        store._logCategoryCounts();
+                    }
                     store.fetchFinished(true);
                 } catch (e) {
                     store.lastError = qsTr("Error al parsear la respuesta: ") + e;
+                    console.warn("[JiraStore] parse error:", e,
+                                 "body:", String(xhr.responseText || "").substring(0, 400));
                     store._bump();
                     store.fetchFinished(false);
                 }
             } else if (xhr.status === 401 || xhr.status === 403) {
                 store.lastError = qsTr("Credenciales inválidas (HTTP %1). Revisá email + API token.").arg(xhr.status);
+                console.warn("[JiraStore] auth error: HTTP " + xhr.status);
                 store._bump();
                 store.fetchFinished(false);
             } else if (xhr.status === 0) {
                 store.lastError = qsTr("No se pudo contactar el servidor. ¿La URL es correcta y hay conexión?");
+                console.warn("[JiraStore] network error: status=0 (timeout, DNS, TLS, CORS-ish)");
                 store._bump();
                 store.fetchFinished(false);
             } else {
-                store.lastError = qsTr("HTTP %1: %2").arg(xhr.status).arg(_extractErrorMessage(xhr.responseText));
+                var msg = _extractErrorMessage(xhr.responseText);
+                store.lastError = qsTr("HTTP %1: %2").arg(xhr.status).arg(msg);
+                console.warn("[JiraStore] HTTP " + xhr.status + ": " + msg);
+                if (xhr.status === 400) {
+                    console.warn("[JiraStore] (HTTP 400 suele indicar un JQL inválido — revisá la consulta)");
+                }
                 store._bump();
                 store.fetchFinished(false);
             }
@@ -184,6 +218,7 @@ QtObject {
         } catch (sendErr) {
             store.loading = false;
             store.lastError = qsTr("Error de red: ") + sendErr;
+            console.warn("[JiraStore] send error:", sendErr);
             store._bump();
             store.fetchFinished(false);
         }
@@ -226,23 +261,56 @@ QtObject {
     }
 
     // ------------------------------------------------------------------
-    // Queries
+    // Configurable category filtering
     // ------------------------------------------------------------------
 
-    function issuesByStatusCategory(cat) {
+    // Returns the list of issues that match category #catIndex.
+    function issuesByJiraCategory(catIndex) {
         var out = [];
         for (var i = 0; i < issues.length; i++) {
-            if (issues[i].statusCat === cat) out.push(issues[i]);
+            if (matchesJiraCategory(issues[i], catIndex)) out.push(issues[i]);
         }
         return out;
     }
 
-    function countByStatusCategory(cat) {
+    function countByJiraCategory(catIndex) {
         var c = 0;
         for (var i = 0; i < issues.length; i++) {
-            if (issues[i].statusCat === cat) c++;
+            if (matchesJiraCategory(issues[i], catIndex)) c++;
         }
         return c;
+    }
+
+    function matchesJiraCategory(issue, catIndex) {
+        if (!plasmoid) return false;
+        var fields = plasmoid.configuration.jiraCategoryFilterFields || [];
+        var values = plasmoid.configuration.jiraCategoryFilterValues || [];
+        var field = (fields[catIndex] || "").trim();
+        var value = (values[catIndex] || "").trim();
+
+        if (!field) return true;     // category with no filter -> match all
+        if (!value) return true;
+
+        var actual = _issueFieldValue(issue, field);
+        if (!actual) return false;
+
+        // Comma-or-semicolon separated list of acceptable values.
+        var accepts = value.split(/[;,]/).map(function(s) { return s.trim().toLowerCase(); });
+        var got = String(actual).trim().toLowerCase();
+        for (var i = 0; i < accepts.length; i++) {
+            if (accepts[i] && accepts[i] === got) return true;
+        }
+        return false;
+    }
+
+    function _issueFieldValue(issue, field) {
+        switch (field) {
+            case "statusCategory": return issue.statusCat;
+            case "status":         return issue.statusName;
+            case "issuetype":      return issue.issuetype;
+            case "priority":       return issue.priority;
+        }
+        return "";
     }
 
     function totalCount() {
@@ -258,8 +326,43 @@ QtObject {
     }
 
     // ------------------------------------------------------------------
-    // Internals
+    // Internals — logging + normalization
     // ------------------------------------------------------------------
+
+    function _log(msg) {
+        if (!plasmoid) return;
+        if (plasmoid.configuration.jiraDebug === false) return;
+        console.log("[JiraStore] " + msg);
+    }
+
+    function _logIssues(arr) {
+        for (var i = 0; i < arr.length; i++) {
+            var it = arr[i];
+            var line = "  - " + it.key
+                     + " [" + (it.issuetype || "?") + "]"
+                     + " (" + (it.statusName || "?") + " / " + (it.statusCat || "?") + ")"
+                     + (it.priority ? " {" + it.priority + "}" : "")
+                     + " — " + (it.summary || "(sin título)").substring(0, 80);
+            if (it.parentKey) line += "  ↳ parent=" + it.parentKey;
+            _log(line);
+        }
+    }
+
+    function _logCategoryCounts() {
+        if (!plasmoid) return;
+        var n = Math.min(4, Math.max(1, plasmoid.configuration.jiraCategoryCount | 0 || 3));
+        var names  = plasmoid.configuration.jiraCategoryNames        || [];
+        var fields = plasmoid.configuration.jiraCategoryFilterFields || [];
+        var values = plasmoid.configuration.jiraCategoryFilterValues || [];
+        for (var i = 0; i < n; i++) {
+            var label = names[i] || ("Cat. " + (i + 1));
+            var field = fields[i] || "(sin filtro)";
+            var value = values[i] || "(cualquiera)";
+            var c = countByJiraCategory(i);
+            _log("category #" + i + " '" + label + "' [" +
+                 field + " = " + value + "]: " + c + " issue(s)");
+        }
+    }
 
     function _bump() {
         version = version + 1;

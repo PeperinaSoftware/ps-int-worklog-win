@@ -25,7 +25,8 @@ ColumnLayout {
     property alias  cfg_jiraJql:             jqlField.text
     property alias  cfg_jiraRefreshMinutes:  refreshSpin.value
     property alias  cfg_jiraMaxResults:      maxSpin.value
-    property alias  cfg_jiraShowDone:        showDoneCheck.checked
+    property alias  cfg_jiraCategoryCount:   catCountSpin.value
+    property alias  cfg_jiraDebug:           debugCheck.checked
 
     Kirigami.FormLayout {
         Layout.fillWidth: true
@@ -86,10 +87,18 @@ ColumnLayout {
             stepSize: 10
         }
 
+        SpinBox {
+            id: catCountSpin
+            Kirigami.FormData.label: i18n("Categorías Jira (pestañas):")
+            from: 1
+            to: 4
+            stepSize: 1
+        }
+
         CheckBox {
-            id: showDoneCheck
-            Kirigami.FormData.label: i18n("Estados:")
-            text: i18n("Mostrar la pestaña «Hechas»")
+            id: debugCheck
+            Kirigami.FormData.label: i18n("Logs de depuración:")
+            text: i18n("Loggear fetch/parse/filter en plasmashell stdout")
         }
     }
 
