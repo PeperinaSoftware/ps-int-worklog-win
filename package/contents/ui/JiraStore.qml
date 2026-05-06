@@ -29,6 +29,11 @@ QtObject {
     property real lastFetchedAt: 0
     property int version: 0
 
+    // Plain-text accumulator for the in-UI debug dialog. Always populated
+    // (independent of the jiraDebug console toggle).
+    property string lastDebugLog: ""
+    property bool hasDebugLog: false
+
     signal changed()
     signal fetchFinished(bool ok)
 
@@ -111,6 +116,11 @@ QtObject {
     // ------------------------------------------------------------------
 
     function fetch() {
+        var ts = Qt.formatDateTime(new Date(), "yyyy-MM-dd hh:mm:ss");
+        lastDebugLog = "=== Fetch " + ts + " ===\n";
+        hasDebugLog = true;
+        _bump();
+
         if (loading) {
             _log("fetch skipped: already loading");
             return;
@@ -187,27 +197,27 @@ QtObject {
                     store.fetchFinished(true);
                 } catch (e) {
                     store.lastError = qsTr("Error al parsear la respuesta: ") + e;
-                    console.warn("[JiraStore] parse error:", e,
-                                 "body:", String(xhr.responseText || "").substring(0, 400));
+                    store._warn("parse error: " + e +
+                                " | body: " + String(xhr.responseText || "").substring(0, 400));
                     store._bump();
                     store.fetchFinished(false);
                 }
             } else if (xhr.status === 401 || xhr.status === 403) {
                 store.lastError = qsTr("Credenciales inválidas (HTTP %1). Revisá email + API token.").arg(xhr.status);
-                console.warn("[JiraStore] auth error: HTTP " + xhr.status);
+                store._warn("auth error: HTTP " + xhr.status);
                 store._bump();
                 store.fetchFinished(false);
             } else if (xhr.status === 0) {
                 store.lastError = qsTr("No se pudo contactar el servidor. ¿La URL es correcta y hay conexión?");
-                console.warn("[JiraStore] network error: status=0 (timeout, DNS, TLS, CORS-ish)");
+                store._warn("error de red: status=0 (timeout, DNS, TLS, CORS)");
                 store._bump();
                 store.fetchFinished(false);
             } else {
                 var msg = _extractErrorMessage(xhr.responseText);
                 store.lastError = qsTr("HTTP %1: %2").arg(xhr.status).arg(msg);
-                console.warn("[JiraStore] HTTP " + xhr.status + ": " + msg);
+                store._warn("HTTP " + xhr.status + ": " + msg);
                 if (xhr.status === 400) {
-                    console.warn("[JiraStore] (HTTP 400 suele indicar un JQL inválido — revisá la consulta)");
+                    store._warn("(HTTP 400 suele indicar un JQL inválido — revisá la consulta)");
                 }
                 store._bump();
                 store.fetchFinished(false);
@@ -218,7 +228,7 @@ QtObject {
         } catch (sendErr) {
             store.loading = false;
             store.lastError = qsTr("Error de red: ") + sendErr;
-            console.warn("[JiraStore] send error:", sendErr);
+            store._warn("error de envío: " + sendErr);
             store._bump();
             store.fetchFinished(false);
         }
@@ -330,9 +340,15 @@ QtObject {
     // ------------------------------------------------------------------
 
     function _log(msg) {
+        lastDebugLog += msg + "\n";
         if (!plasmoid) return;
         if (plasmoid.configuration.jiraDebug === false) return;
         console.log("[JiraStore] " + msg);
+    }
+
+    function _warn(msg) {
+        lastDebugLog += "[!] " + msg + "\n";
+        console.warn("[JiraStore] " + msg);
     }
 
     function _logIssues(arr) {

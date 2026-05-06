@@ -79,6 +79,13 @@ Item {
                 PlasmaComponents3.ToolTip.visible: hovered
                 PlasmaComponents3.ToolTip.delay: 500
             }
+            PlasmaComponents3.ToolButton {
+                icon.name: "dialog-information"
+                onClicked: debugOverlay.visible = true
+                PlasmaComponents3.ToolTip.text: i18n("Ver diagnóstico de la última consulta")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
+            }
         }
 
         // -------- Tabs (one per Jira category) --------
@@ -186,6 +193,91 @@ Item {
                 icon.name: "configure"
                 text: i18n("Configurar…")
                 onClicked: plasmoid.action("configure").trigger()
+            }
+        }
+    }
+
+    // -------- Debug overlay (in-popup modal showing last fetch log) --------
+    Item {
+        id: debugOverlay
+        anchors.fill: parent
+        visible: false
+        z: 1000
+
+        Rectangle {
+            anchors.fill: parent
+            color: "#000000"
+            opacity: 0.5
+            MouseArea {
+                anchors.fill: parent
+                onClicked: debugOverlay.visible = false
+            }
+        }
+
+        Rectangle {
+            anchors.centerIn: parent
+            width: Math.max(300, parent.width - 20)
+            height: Math.max(220, parent.height - 30)
+            color: PlasmaCore.Theme.backgroundColor
+            border.color: PlasmaCore.Theme.textColor
+            border.width: 1
+            radius: 4
+
+            MouseArea { anchors.fill: parent }
+
+            ColumnLayout {
+                anchors.fill: parent
+                anchors.margins: 8
+                spacing: 6
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    PlasmaComponents3.Label {
+                        Layout.fillWidth: true
+                        text: i18n("Diagnóstico — última consulta Jira")
+                        font.bold: true
+                    }
+                    PlasmaComponents3.ToolButton {
+                        icon.name: "edit-copy"
+                        text: i18n("Copiar")
+                        enabled: jira && jira.hasDebugLog
+                        onClicked: {
+                            logArea.selectAll();
+                            logArea.copy();
+                            logArea.deselect();
+                        }
+                    }
+                    PlasmaComponents3.ToolButton {
+                        icon.name: "window-close"
+                        onClicked: debugOverlay.visible = false
+                    }
+                }
+
+                QQC2.ScrollView {
+                    Layout.fillWidth: true
+                    Layout.fillHeight: true
+                    clip: true
+
+                    QQC2.TextArea {
+                        id: logArea
+                        readOnly: true
+                        selectByMouse: true
+                        wrapMode: TextEdit.WrapAnywhere
+                        font.family: "monospace"
+                        font.pixelSize: 11
+                        text: (jira && jira.hasDebugLog)
+                              ? ((view._v, jira.lastDebugLog))
+                              : i18n("Sin datos. Pulsá ↻ para hacer un fetch primero.")
+                    }
+                }
+
+                PlasmaComponents3.Label {
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                    opacity: 0.6
+                    font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
+                    text: i18n("Cada fetch reemplaza este log. Los warnings aparecen con [!].")
+                }
             }
         }
     }
