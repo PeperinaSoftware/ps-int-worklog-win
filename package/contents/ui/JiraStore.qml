@@ -115,38 +115,70 @@ QtObject {
     // Fetch
     // ------------------------------------------------------------------
 
+    function clearDebugLog() {
+        lastDebugLog = "";
+        hasDebugLog = false;
+        _bump();
+    }
+
     function fetch() {
+        // Append-only: separator between fetch attempts so the history
+        // of multiple attempts is visible at once.
         var ts = Qt.formatDateTime(new Date(), "yyyy-MM-dd hh:mm:ss");
-        lastDebugLog = "=== Fetch " + ts + " ===\n";
+        if (lastDebugLog.length > 0) _appendDebug("\n");
+        _appendDebug("=== Fetch " + ts + " ===\n");
         hasDebugLog = true;
         _bump();
+        _log("fetch() invocado.");
 
-        if (loading) {
-            _log("fetch skipped: already loading");
+        if (!plasmoid) {
+            _warn("[FATAL] plasmoid es null — el componente no fue inicializado correctamente.");
+            _bump();
             return;
         }
-        if (!plasmoid) return;
+        if (loading) {
+            _warn("[abort] Ya hay una carga en curso; esperá a que termine.");
+            return;
+        }
 
-        var site  = (plasmoid.configuration.jiraSite || "").trim().replace(/\/+$/, "");
-        var email = (plasmoid.configuration.jiraEmail || "").trim();
-        var token = (plasmoid.configuration.jiraToken || "").trim();
-        var jql   = (plasmoid.configuration.jiraJql || "").trim();
-        var max   = Math.max(10, Math.min(200, plasmoid.configuration.jiraMaxResults | 0 || 50));
+        var pc = plasmoid.configuration;
+        var site  = (pc.jiraSite || "").trim().replace(/\/+$/, "");
+        var email = (pc.jiraEmail || "").trim();
+        var token = (pc.jiraToken || "").trim();
+        var jql   = (pc.jiraJql || "").trim();
+        var max   = Math.max(10, Math.min(200, pc.jiraMaxResults | 0 || 50));
 
-        if (!site || !email || !token) {
-            lastError = qsTr("Configurá la URL del sitio, el email y el API token de Jira.");
-            _log("fetch aborted: missing credentials (site=" + (!!site) +
-                 " email=" + (!!email) + " token=" + (!!token) + ")");
+        _log("Credenciales (de plasmoid.configuration):");
+        _log("  jiraSite   = " + (site  || "(VACÍO)"));
+        _log("  jiraEmail  = " + (email || "(VACÍO)"));
+        _log("  jiraToken  = " + (token ? "[OK, " + token.length + " caracteres]" : "(VACÍO)"));
+        _log("  jiraJql    = " + (jql   || "(VACÍO)"));
+        _log("  maxResults = " + max);
+
+        var missing = [];
+        if (!site)  missing.push("site");
+        if (!email) missing.push("email");
+        if (!token) missing.push("token");
+        if (missing.length) {
+            lastError = qsTr("Faltan credenciales: ") + missing.join(", ");
+            _warn("[abort] Faltan campos: " + missing.join(", ") +
+                  ". Configurá la pestaña 'Jira' del diálogo de configuración.");
             _bump();
             fetchFinished(false);
             return;
         }
         if (!jql) {
             lastError = qsTr("La consulta JQL está vacía.");
-            _log("fetch aborted: empty JQL");
+            _warn("[abort] JQL vacío. Probá con: assignee = currentUser()");
             _bump();
             fetchFinished(false);
             return;
+        }
+        if (!/^https?:\/\//i.test(site)) {
+            _warn("La URL no empieza con http:// o https://. Esto suele dar status=0.");
+        }
+        if (/^http:\/\//i.test(site)) {
+            _warn("Estás usando HTTP (sin TLS). La conexión va en claro.");
         }
 
         loading = true;
@@ -156,24 +188,59 @@ QtObject {
         var fields = "summary,status,priority,issuetype,parent,updated";
         var url = site + "/rest/api/3/search?jql=" + encodeURIComponent(jql)
                 + "&maxResults=" + max + "&fields=" + fields;
+        var authHeader = "Basic " + Qt.btoa(email + ":" + token);
 
-        _log("fetch start: GET " + site + "/rest/api/3/search");
-        _log("  JQL : " + jql);
-        _log("  max : " + max + ", fields: " + fields);
+        _log("");
+        _log("Preparando request:");
+        _log("  GET " + (url.length > 250 ? url.substring(0, 250) + "…" : url));
+        _log("  Authorization: " + authHeader.substring(0, 16) + "… (truncado)");
+        _log("  Accept: application/json");
 
         var t0 = Date.now();
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", url, true);
-        xhr.setRequestHeader("Authorization", "Basic " + Qt.btoa(email + ":" + token));
+
+        try {
+            xhr.open("GET", url, true);
+            _log("xhr.open() OK.");
+        } catch (openErr) {
+            store.loading = false;
+            store.lastError = qsTr("Error abriendo la petición: ") + openErr;
+            _warn("xhr.open() lanzó: " + openErr);
+            _bump();
+            fetchFinished(false);
+            return;
+        }
+        xhr.setRequestHeader("Authorization", authHeader);
         xhr.setRequestHeader("Accept", "application/json");
+
         xhr.onreadystatechange = function() {
+            if (xhr.readyState === XMLHttpRequest.OPENED) {
+                store._log("readyState=1 (OPENED).");
+            } else if (xhr.readyState === XMLHttpRequest.HEADERS_RECEIVED) {
+                store._log("readyState=2 (HEADERS_RECEIVED) — status preliminar=" + xhr.status);
+            } else if (xhr.readyState === XMLHttpRequest.LOADING) {
+                store._log("readyState=3 (LOADING) — recibiendo cuerpo…");
+            }
             if (xhr.readyState !== XMLHttpRequest.DONE) return;
+
             store.loading = false;
             var elapsed = Date.now() - t0;
+            store._log("readyState=4 (DONE) — completado en " + elapsed + " ms.");
+            store._log("HTTP status: " + xhr.status + " " + (xhr.statusText || ""));
+
+            var body = xhr.responseText || "";
+            store._log("Tamaño del cuerpo: " + body.length + " bytes.");
+            if (body.length > 0) {
+                var preview = body.length <= 600 ? body : body.substring(0, 600) + "…";
+                store._log("Cuerpo:");
+                store._log("  " + preview.replace(/\n/g, "\n  "));
+            } else {
+                store._log("Cuerpo: (vacío)");
+            }
 
             if (xhr.status === 200) {
                 try {
-                    var data = JSON.parse(xhr.responseText);
+                    var data = JSON.parse(body);
                     var raw = data.issues || [];
                     var out = [];
                     for (var i = 0; i < raw.length; i++) {
@@ -185,11 +252,12 @@ QtObject {
                     store.saveCache();
                     store._bump();
 
-                    _log("fetch ok in " + elapsed + " ms — " + out.length +
-                         " issue(s) (total in JQL: " + (data.total || "?") + ")");
+                    store._log("");
+                    store._log("Resumen: " + out.length + " issue(s) recibida(s) " +
+                               "(total en JQL: " + (data.total || "?") +
+                               ", maxResults aplicado: " + (data.maxResults || "?") + ").");
                     if (out.length === 0) {
-                        _log("  ⚠  JQL devolvió 0 resultados. Probalo en la UI de Jira " +
-                             "para confirmar que la consulta es correcta.");
+                        store._warn("JQL devolvió 0 resultados. Probalo en la UI de Jira para confirmar.");
                     } else {
                         store._logIssues(out);
                         store._logCategoryCounts();
@@ -197,38 +265,60 @@ QtObject {
                     store.fetchFinished(true);
                 } catch (e) {
                     store.lastError = qsTr("Error al parsear la respuesta: ") + e;
-                    store._warn("parse error: " + e +
-                                " | body: " + String(xhr.responseText || "").substring(0, 400));
+                    store._warn("Parse error: " + e);
                     store._bump();
                     store.fetchFinished(false);
                 }
-            } else if (xhr.status === 401 || xhr.status === 403) {
-                store.lastError = qsTr("Credenciales inválidas (HTTP %1). Revisá email + API token.").arg(xhr.status);
-                store._warn("auth error: HTTP " + xhr.status);
+            } else if (xhr.status === 401) {
+                store.lastError = qsTr("HTTP 401: credenciales rechazadas. Revisá email + token.");
+                store._warn("HTTP 401 — el email/token son incorrectos o el token fue revocado.");
+                store._warn("Generá un token nuevo en: id.atlassian.com/manage-profile/security/api-tokens");
+                store._bump();
+                store.fetchFinished(false);
+            } else if (xhr.status === 403) {
+                store.lastError = qsTr("HTTP 403: el token no tiene permisos sobre este recurso.");
+                store._warn("HTTP 403 — el token NO tiene permisos para leer issues.");
+                store._warn("El usuario debe tener 'Browse Projects' en al menos un proyecto.");
+                store._warn("Si Jira tiene scopes en la cuenta, asegurate de marcar 'read:issue' (o equivalente).");
+                store._bump();
+                store.fetchFinished(false);
+            } else if (xhr.status === 404) {
+                store.lastError = qsTr("HTTP 404: el endpoint no existe en este servidor.");
+                store._warn("HTTP 404 — la URL del sitio puede estar mal, o la instancia es Server/DC sin API v3.");
+                store._bump();
+                store.fetchFinished(false);
+            } else if (xhr.status === 400) {
+                var msg400 = _extractErrorMessage(body);
+                store.lastError = qsTr("HTTP 400: ") + msg400;
+                store._warn("HTTP 400 — JQL inválido. Mensaje del servidor: " + msg400);
                 store._bump();
                 store.fetchFinished(false);
             } else if (xhr.status === 0) {
                 store.lastError = qsTr("No se pudo contactar el servidor. ¿La URL es correcta y hay conexión?");
-                store._warn("error de red: status=0 (timeout, DNS, TLS, CORS)");
+                store._warn("status=0 — posibles causas:");
+                store._warn("  1) URL del sitio incorrecta o DNS no resuelve");
+                store._warn("  2) Falla TLS (certificado inválido / cadena rota)");
+                store._warn("  3) Sin conexión de red (proxy, firewall)");
+                store._warn("  4) Plasma sin permisos para abrir sockets HTTPS");
                 store._bump();
                 store.fetchFinished(false);
             } else {
-                var msg = _extractErrorMessage(xhr.responseText);
-                store.lastError = qsTr("HTTP %1: %2").arg(xhr.status).arg(msg);
-                store._warn("HTTP " + xhr.status + ": " + msg);
-                if (xhr.status === 400) {
-                    store._warn("(HTTP 400 suele indicar un JQL inválido — revisá la consulta)");
-                }
+                var msgX = _extractErrorMessage(body);
+                store.lastError = qsTr("HTTP %1: %2").arg(xhr.status).arg(msgX);
+                store._warn("HTTP " + xhr.status + ": " + msgX);
                 store._bump();
                 store.fetchFinished(false);
             }
         };
+
         try {
+            _log("Disparando xhr.send()…");
             xhr.send();
+            _log("xhr.send() retornó. Esperando respuesta async…");
         } catch (sendErr) {
             store.loading = false;
             store.lastError = qsTr("Error de red: ") + sendErr;
-            store._warn("error de envío: " + sendErr);
+            store._warn("xhr.send() lanzó: " + sendErr);
             store._bump();
             store.fetchFinished(false);
         }
@@ -339,15 +429,27 @@ QtObject {
     // Internals — logging + normalization
     // ------------------------------------------------------------------
 
+    readonly property int _maxDebugLogChars: 80000
+
+    function _appendDebug(line) {
+        var next = lastDebugLog + line;
+        if (next.length > _maxDebugLogChars) {
+            // Drop the oldest half so we keep the most recent activity.
+            next = "[…log truncado…]\n" + next.substring(next.length - Math.floor(_maxDebugLogChars / 2));
+        }
+        lastDebugLog = next;
+        if (!hasDebugLog) hasDebugLog = true;
+    }
+
     function _log(msg) {
-        lastDebugLog += msg + "\n";
+        _appendDebug(msg + "\n");
         if (!plasmoid) return;
         if (plasmoid.configuration.jiraDebug === false) return;
         console.log("[JiraStore] " + msg);
     }
 
     function _warn(msg) {
-        lastDebugLog += "[!] " + msg + "\n";
+        _appendDebug("[!] " + msg + "\n");
         console.warn("[JiraStore] " + msg);
     }
 

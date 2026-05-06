@@ -248,6 +248,12 @@ Item {
                         }
                     }
                     PlasmaComponents3.ToolButton {
+                        icon.name: "edit-clear-all"
+                        text: i18n("Limpiar")
+                        enabled: jira && jira.hasDebugLog
+                        onClicked: jira.clearDebugLog()
+                    }
+                    PlasmaComponents3.ToolButton {
                         icon.name: "window-close"
                         onClicked: debugOverlay.visible = false
                     }
