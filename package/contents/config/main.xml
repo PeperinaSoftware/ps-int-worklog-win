@@ -156,5 +156,87 @@
             <label>Log Jira fetch / parse / filter details to plasmashell stdout</label>
             <default>true</default>
         </entry>
+
+        <!-- GitHub Projects integration (read-only). Uses GraphQL v4 and a
+             Personal Access Token. See docs/GH_PROJECTS.md. -->
+        <entry name="ghToken" type="String">
+            <label>GitHub Personal Access Token (classic with 'project,read:org,repo' or fine-grained with Projects read access). Stored in plain text under ~/.config.</label>
+            <default></default>
+        </entry>
+        <entry name="ghOwner" type="String">
+            <label>GitHub login of the project owner (user or organization)</label>
+            <default></default>
+        </entry>
+        <entry name="ghOwnerType" type="String">
+            <label>"user" or "organization"</label>
+            <default>user</default>
+        </entry>
+        <entry name="ghProjectNumber" type="Int">
+            <label>Project (V2) number, as shown in the URL .../projects/&lt;N&gt;</label>
+            <default>1</default>
+            <min>1</min>
+            <max>99999</max>
+        </entry>
+        <entry name="ghStatusField" type="String">
+            <label>Name of the single-select field used as Status (defaults to "Status")</label>
+            <default>Status</default>
+        </entry>
+        <entry name="ghIncludeClosed" type="Bool">
+            <label>Include closed issues / merged PRs in the fetch</label>
+            <default>true</default>
+        </entry>
+        <entry name="ghRefreshMinutes" type="Int">
+            <label>Auto-refresh interval in minutes (0 = manual only)</label>
+            <default>5</default>
+            <min>0</min>
+            <max>1440</max>
+        </entry>
+        <entry name="ghMaxResults" type="Int">
+            <label>Maximum number of project items to fetch per call</label>
+            <default>100</default>
+            <min>10</min>
+            <max>300</max>
+        </entry>
+        <entry name="ghDebug" type="Bool">
+            <label>Log GitHub fetch / parse / filter details to plasmashell stdout</label>
+            <default>true</default>
+        </entry>
+
+        <!-- Configurable GitHub Projects categories. Same shape as Jira:
+             parallel StringLists describing up to 4 user-defined tabs. -->
+        <entry name="ghCategoryCount" type="Int">
+            <label>Number of GitHub Projects categories (tabs)</label>
+            <default>3</default>
+            <min>1</min>
+            <max>4</max>
+        </entry>
+        <entry name="ghCategoryNames" type="StringList">
+            <label>Display name of each GitHub Projects category</label>
+            <default>Todo,In Progress,Done,Otras</default>
+        </entry>
+        <entry name="ghCategoryColors" type="StringList">
+            <label>Hex color of each GitHub Projects category</label>
+            <default>#6e7681,#d29922,#238636,#8957e5</default>
+        </entry>
+        <entry name="ghCategoryTextColors" type="StringList">
+            <label>"white" or "black" text color for each GitHub category swatch</label>
+            <default>white,white,white,white</default>
+        </entry>
+        <!-- Filter field per category: one of
+             "status"  (single-select field named ghStatusField),
+             "type"    (Issue / PullRequest / DraftIssue),
+             "state"   (OPEN / CLOSED / MERGED),
+             "repo"    (owner/name),
+             ""        (no filter -> matches all items). -->
+        <entry name="ghCategoryFilterFields" type="StringList">
+            <label>Field that each GitHub category filters on</label>
+            <default>status,status,status,</default>
+        </entry>
+        <!-- Use ';' as the intra-entry OR separator (the list itself is
+             comma-separated). -->
+        <entry name="ghCategoryFilterValues" type="StringList">
+            <label>Value to match for each GitHub category (use ';' for OR)</label>
+            <default>Todo,In Progress,Done,</default>
+        </entry>
     </group>
 </kcfg>

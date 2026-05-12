@@ -2,9 +2,10 @@
  * main.qml - Categorized ToDo plasmoid root.
  *
  * Hosts both representations and owns the shared stores. The plasmoid
- * has two operating modes (configurable):
+ * has three operating modes (configurable):
  *   - "todo": local task list (TaskStore + SQLite).
  *   - "jira": read-only view of Jira issues assigned to the user.
+ *   - "gh":   read-only view of a GitHub Projects (V2) project.
  *
  * Persistence: SQLite via QtQuick.LocalStorage 2.15. See
  * docs/PERSISTENCE.md for the storage path and layout.
@@ -26,6 +27,7 @@ Item {
     Plasmoid.fullRepresentation: FullRepresentation {
         store: _store
         jira: _jira
+        gh: _gh
         Layout.minimumWidth: plasmoid.configuration.popupWidth
         Layout.minimumHeight: plasmoid.configuration.popupHeight
         Layout.preferredWidth: plasmoid.configuration.popupWidth
@@ -35,17 +37,25 @@ Item {
     Plasmoid.compactRepresentation: CompactRepresentation {
         store: _store
         jira: _jira
+        gh: _gh
     }
 
-    Plasmoid.toolTipMainText: root.mode === "jira"
-            ? i18n("Jira — assigned issues")
-            : i18n("Categorized ToDo")
+    Plasmoid.toolTipMainText: {
+        if (root.mode === "jira") return i18n("Jira — assigned issues");
+        if (root.mode === "gh")   return i18n("GitHub Projects");
+        return i18n("Categorized ToDo");
+    }
 
     Plasmoid.toolTipSubText: {
         if (root.mode === "jira") {
             if (!_jira) return "";
             if (_jira.lastError) return _jira.lastError;
             return i18np("%1 issue", "%1 issues", _jira.totalCount());
+        }
+        if (root.mode === "gh") {
+            if (!_gh) return "";
+            if (_gh.lastError) return _gh.lastError;
+            return i18np("%1 item", "%1 items", _gh.totalCount());
         }
         return _store ? i18np("%1 pending task", "%1 pending tasks", _store.totalPending()) : "";
     }
@@ -66,18 +76,29 @@ Item {
         database: _db
     }
 
+    GhStore {
+        id: _gh
+        plasmoid: plasmoid
+        database: _db
+    }
+
     Component.onCompleted: {
         _db.init();
         _store.load();
         _jira.init();
+        _gh.init();
 
         // The init() above may have written restored credentials back
         // into Plasmoid.configuration; mirror them straight back into
         // SQLite so the two layers stay in sync.
         _jira.persistCredentials();
+        _gh.persistCredentials();
 
         if (root.mode === "jira" && _jira.lastFetchedAt === 0) {
             _jira.fetch();
+        }
+        if (root.mode === "gh" && _gh.lastFetchedAt === 0) {
+            _gh.fetch();
         }
     }
 
@@ -102,9 +123,17 @@ Item {
 
         function onJiraRefreshMinutesChanged() { _jira.applyRefreshSchedule(); }
 
+        // Mirror GitHub credentials too.
+        function onGhTokenChanged() { _gh.persistCredentials(); }
+        function onGhOwnerChanged() { _gh.persistCredentials(); }
+        function onGhRefreshMinutesChanged() { _gh.applyRefreshSchedule(); }
+
         function onModeChanged() {
             if (root.mode === "jira" && _jira.lastFetchedAt === 0 && !_jira.loading) {
                 _jira.fetch();
+            }
+            if (root.mode === "gh" && _gh.lastFetchedAt === 0 && !_gh.loading) {
+                _gh.fetch();
             }
         }
     }
