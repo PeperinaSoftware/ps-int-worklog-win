@@ -14,7 +14,7 @@
  * it out. The most recent successful response is cached in the gh_cache
  * table so the popup is populated immediately on next launch.
  *
- * Debug logs (enabled by default via plasmoid.configuration.ghDebug)
+ * Debug logs (enabled by default via plasmoidApi.configuration.ghDebug)
  * surface the GraphQL response status and the per-category counts. Read
  * them with:
  *   journalctl --user -f _COMM=plasmashell | grep -i ghstore
@@ -25,7 +25,7 @@ import QtQuick 2.15
 QtObject {
     id: store
 
-    property var plasmoid: null
+    property var plasmoidApi: null
     property var database: null
 
     property var items: []
@@ -64,8 +64,8 @@ QtObject {
     }
 
     function applyRefreshSchedule() {
-        if (!plasmoid) return;
-        var minutes = plasmoid.configuration.ghRefreshMinutes | 0;
+        if (!plasmoidApi) return;
+        var minutes = plasmoidApi.configuration.ghRefreshMinutes | 0;
         if (minutes > 0) {
             _refreshTimer.interval = minutes * 60 * 1000;
             _refreshTimer.running = true;
@@ -81,8 +81,8 @@ QtObject {
     // ------------------------------------------------------------------
 
     function restoreCredentialsFromCache() {
-        if (!database || !database.ready || !plasmoid) return;
-        var pc = plasmoid.configuration;
+        if (!database || !database.ready || !plasmoidApi) return;
+        var pc = plasmoidApi.configuration;
         var restored = [];
         if (!pc.ghToken) { var t = database.getSetting("gh.token", ""); if (t) { pc.ghToken = t; restored.push("token"); } }
         if (!pc.ghOwner) { var o = database.getSetting("gh.owner", ""); if (o) { pc.ghOwner = o; restored.push("owner"); } }
@@ -90,8 +90,8 @@ QtObject {
     }
 
     function persistCredentials() {
-        if (!database || !database.ready || !plasmoid) return;
-        var pc = plasmoid.configuration;
+        if (!database || !database.ready || !plasmoidApi) return;
+        var pc = plasmoidApi.configuration;
         database.setSetting("gh.token", pc.ghToken || "");
         database.setSetting("gh.owner", pc.ghOwner || "");
     }
@@ -133,8 +133,9 @@ QtObject {
         _bump();
         _log("fetch() invocado.");
 
-        if (!plasmoid) {
-            _warn("[FATAL] plasmoid es null.");
+        if (!plasmoidApi) {
+            _warn("[FATAL] plasmoidApi es null — el componente no fue inicializado " +
+                  "correctamente. Reinstalá el plasmoide y reiniciá plasmashell.");
             _bump();
             return;
         }
@@ -143,7 +144,7 @@ QtObject {
             return;
         }
 
-        var pc = plasmoid.configuration;
+        var pc = plasmoidApi.configuration;
         var token = (pc.ghToken || "").trim();
         var owner = (pc.ghOwner || "").trim();
         var ownerType = (pc.ghOwnerType || "user").trim().toLowerCase();
@@ -286,8 +287,8 @@ QtObject {
                     var nodes = (ownerNode.projectV2.items && ownerNode.projectV2.items.nodes) || [];
                     var out = [];
                     var seenStatuses = {};
-                    var includeClosed = (plasmoid.configuration.ghIncludeClosed !== false);
-                    var statusField = (plasmoid.configuration.ghStatusField || "Status").trim();
+                    var includeClosed = (plasmoidApi.configuration.ghIncludeClosed !== false);
+                    var statusField = (plasmoidApi.configuration.ghStatusField || "Status").trim();
                     for (var i = 0; i < nodes.length; i++) {
                         var n = _normalize(nodes[i], statusField);
                         if (!includeClosed && (n.state === "CLOSED" || n.state === "MERGED")) continue;
@@ -407,9 +408,9 @@ QtObject {
     }
 
     function matchesGhCategory(item, catIndex) {
-        if (!plasmoid) return false;
-        var fields = plasmoid.configuration.ghCategoryFilterFields || [];
-        var values = plasmoid.configuration.ghCategoryFilterValues || [];
+        if (!plasmoidApi) return false;
+        var fields = plasmoidApi.configuration.ghCategoryFilterFields || [];
+        var values = plasmoidApi.configuration.ghCategoryFilterValues || [];
         var field = (fields[catIndex] || "").trim();
         var value = (values[catIndex] || "").trim();
 
@@ -466,8 +467,8 @@ QtObject {
 
     function _log(msg) {
         _appendDebug(msg + "\n");
-        if (!plasmoid) return;
-        if (plasmoid.configuration.ghDebug === false) return;
+        if (!plasmoidApi) return;
+        if (plasmoidApi.configuration.ghDebug === false) return;
         console.log("[GhStore] " + msg);
     }
 
@@ -477,11 +478,11 @@ QtObject {
     }
 
     function _logCategoryCounts() {
-        if (!plasmoid) return;
-        var n = Math.min(4, Math.max(1, plasmoid.configuration.ghCategoryCount | 0 || 3));
-        var names  = plasmoid.configuration.ghCategoryNames        || [];
-        var fields = plasmoid.configuration.ghCategoryFilterFields || [];
-        var values = plasmoid.configuration.ghCategoryFilterValues || [];
+        if (!plasmoidApi) return;
+        var n = Math.min(4, Math.max(1, plasmoidApi.configuration.ghCategoryCount | 0 || 3));
+        var names  = plasmoidApi.configuration.ghCategoryNames        || [];
+        var fields = plasmoidApi.configuration.ghCategoryFilterFields || [];
+        var values = plasmoidApi.configuration.ghCategoryFilterValues || [];
         for (var i = 0; i < n; i++) {
             var label = names[i] || ("Cat. " + (i + 1));
             var field = fields[i] || "(sin filtro)";

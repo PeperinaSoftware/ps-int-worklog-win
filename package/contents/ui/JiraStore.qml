@@ -9,7 +9,7 @@
  * Auth: HTTP Basic with email + API token. Credentials are mirrored to
  * SQLite so a Plasma config loss doesn't wipe them out.
  *
- * Debug logs (enabled by default via plasmoid.configuration.jiraDebug)
+ * Debug logs (enabled by default via plasmoidApi.configuration.jiraDebug)
  * surface the URL, JQL, HTTP status, per-issue summary and the count
  * each category ended up with. Read them with:
  *   journalctl --user -f _COMM=plasmashell | grep -i jirastore
@@ -20,7 +20,7 @@ import QtQuick 2.15
 QtObject {
     id: store
 
-    property var plasmoid: null
+    property var plasmoidApi: null
     property var database: null
 
     property var issues: []
@@ -56,8 +56,8 @@ QtObject {
     }
 
     function applyRefreshSchedule() {
-        if (!plasmoid) return;
-        var minutes = plasmoid.configuration.jiraRefreshMinutes | 0;
+        if (!plasmoidApi) return;
+        var minutes = plasmoidApi.configuration.jiraRefreshMinutes | 0;
         if (minutes > 0) {
             _refreshTimer.interval = minutes * 60 * 1000;
             _refreshTimer.running = true;
@@ -73,8 +73,8 @@ QtObject {
     // ------------------------------------------------------------------
 
     function restoreCredentialsFromCache() {
-        if (!database || !database.ready || !plasmoid) return;
-        var pc = plasmoid.configuration;
+        if (!database || !database.ready || !plasmoidApi) return;
+        var pc = plasmoidApi.configuration;
         var restored = [];
         if (!pc.jiraSite)  { var s = database.getSetting("jira.site",  ""); if (s) { pc.jiraSite  = s; restored.push("site"); } }
         if (!pc.jiraEmail) { var e = database.getSetting("jira.email", ""); if (e) { pc.jiraEmail = e; restored.push("email"); } }
@@ -84,8 +84,8 @@ QtObject {
     }
 
     function persistCredentials() {
-        if (!database || !database.ready || !plasmoid) return;
-        var pc = plasmoid.configuration;
+        if (!database || !database.ready || !plasmoidApi) return;
+        var pc = plasmoidApi.configuration;
         database.setSetting("jira.site",  pc.jiraSite  || "");
         database.setSetting("jira.email", pc.jiraEmail || "");
         database.setSetting("jira.token", pc.jiraToken || "");
@@ -131,8 +131,10 @@ QtObject {
         _bump();
         _log("fetch() invocado.");
 
-        if (!plasmoid) {
-            _warn("[FATAL] plasmoid es null — el componente no fue inicializado correctamente.");
+        if (!plasmoidApi) {
+            _warn("[FATAL] plasmoidApi es null — el componente no fue inicializado " +
+                  "correctamente (la asignación en main.qml no llegó). Reinstalá el " +
+                  "plasmoide y reiniciá plasmashell.");
             _bump();
             return;
         }
@@ -141,14 +143,14 @@ QtObject {
             return;
         }
 
-        var pc = plasmoid.configuration;
+        var pc = plasmoidApi.configuration;
         var site  = (pc.jiraSite || "").trim().replace(/\/+$/, "");
         var email = (pc.jiraEmail || "").trim();
         var token = (pc.jiraToken || "").trim();
         var jql   = (pc.jiraJql || "").trim();
         var max   = Math.max(10, Math.min(200, pc.jiraMaxResults | 0 || 50));
 
-        _log("Credenciales (de plasmoid.configuration):");
+        _log("Credenciales (de plasmoidApi.configuration):");
         _log("  jiraSite   = " + (site  || "(VACÍO)"));
         _log("  jiraEmail  = " + (email || "(VACÍO)"));
         _log("  jiraToken  = " + (token ? "[OK, " + token.length + " caracteres]" : "(VACÍO)"));
@@ -382,9 +384,9 @@ QtObject {
     }
 
     function matchesJiraCategory(issue, catIndex) {
-        if (!plasmoid) return false;
-        var fields = plasmoid.configuration.jiraCategoryFilterFields || [];
-        var values = plasmoid.configuration.jiraCategoryFilterValues || [];
+        if (!plasmoidApi) return false;
+        var fields = plasmoidApi.configuration.jiraCategoryFilterFields || [];
+        var values = plasmoidApi.configuration.jiraCategoryFilterValues || [];
         var field = (fields[catIndex] || "").trim();
         var value = (values[catIndex] || "").trim();
 
@@ -443,8 +445,8 @@ QtObject {
 
     function _log(msg) {
         _appendDebug(msg + "\n");
-        if (!plasmoid) return;
-        if (plasmoid.configuration.jiraDebug === false) return;
+        if (!plasmoidApi) return;
+        if (plasmoidApi.configuration.jiraDebug === false) return;
         console.log("[JiraStore] " + msg);
     }
 
@@ -467,11 +469,11 @@ QtObject {
     }
 
     function _logCategoryCounts() {
-        if (!plasmoid) return;
-        var n = Math.min(4, Math.max(1, plasmoid.configuration.jiraCategoryCount | 0 || 3));
-        var names  = plasmoid.configuration.jiraCategoryNames        || [];
-        var fields = plasmoid.configuration.jiraCategoryFilterFields || [];
-        var values = plasmoid.configuration.jiraCategoryFilterValues || [];
+        if (!plasmoidApi) return;
+        var n = Math.min(4, Math.max(1, plasmoidApi.configuration.jiraCategoryCount | 0 || 3));
+        var names  = plasmoidApi.configuration.jiraCategoryNames        || [];
+        var fields = plasmoidApi.configuration.jiraCategoryFilterFields || [];
+        var values = plasmoidApi.configuration.jiraCategoryFilterValues || [];
         for (var i = 0; i < n; i++) {
             var label = names[i] || ("Cat. " + (i + 1));
             var field = fields[i] || "(sin filtro)";

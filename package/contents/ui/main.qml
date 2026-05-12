@@ -72,17 +72,22 @@ Item {
 
     JiraStore {
         id: _jira
-        plasmoid: plasmoid
+        plasmoidApi: plasmoid
         database: _db
     }
 
     GhStore {
         id: _gh
-        plasmoid: plasmoid
+        plasmoidApi: plasmoid
         database: _db
     }
 
     Component.onCompleted: {
+        // Belt-and-suspenders: re-assign plasmoidApi explicitly in case the
+        // declarative binding above didn't fire for some reason.
+        _jira.plasmoidApi = plasmoid;
+        _gh.plasmoidApi   = plasmoid;
+
         _db.init();
         _store.load();
         _jira.init();
