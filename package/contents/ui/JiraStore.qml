@@ -188,7 +188,12 @@ QtObject {
         _bump();
 
         var fields = "summary,status,priority,issuetype,parent,updated";
-        var url = site + "/rest/api/3/search?jql=" + encodeURIComponent(jql)
+        // /rest/api/3/search was removed in 2025; /rest/api/3/search/jql is
+        // the replacement. The new endpoint returns at most `maxResults`
+        // issues and uses cursor pagination (nextPageToken + isLast) instead
+        // of the old `total` field. We don't paginate — first page is
+        // enough for the plasmoid use case.
+        var url = site + "/rest/api/3/search/jql?jql=" + encodeURIComponent(jql)
                 + "&maxResults=" + max + "&fields=" + fields;
         var authHeader = "Basic " + Qt.btoa(email + ":" + token);
 
@@ -255,9 +260,15 @@ QtObject {
                     store._bump();
 
                     store._log("");
+                    var more = (data.isLast === false) || (typeof data.nextPageToken === "string"
+                                                          && data.nextPageToken.length > 0);
                     store._log("Resumen: " + out.length + " issue(s) recibida(s) " +
-                               "(total en JQL: " + (data.total || "?") +
-                               ", maxResults aplicado: " + (data.maxResults || "?") + ").");
+                               "en esta página (isLast=" + (data.isLast === undefined ? "?" : data.isLast) +
+                               ", nextPageToken=" + (data.nextPageToken ? "[present]" : "(none)") + ").");
+                    if (more) {
+                        store._log("  Hay más issues disponibles — el plasmoide solo muestra la primera página. " +
+                                   "Reducí el JQL o subí maxResults si querés ver todas.");
+                    }
                     if (out.length === 0) {
                         store._warn("JQL devolvió 0 resultados. Probalo en la UI de Jira para confirmar.");
                     } else {
@@ -287,6 +298,15 @@ QtObject {
             } else if (xhr.status === 404) {
                 store.lastError = qsTr("HTTP 404: el endpoint no existe en este servidor.");
                 store._warn("HTTP 404 — la URL del sitio puede estar mal, o la instancia es Server/DC sin API v3.");
+                store._bump();
+                store.fetchFinished(false);
+            } else if (xhr.status === 410) {
+                var msg410 = _extractErrorMessage(body);
+                store.lastError = qsTr("HTTP 410: el endpoint fue removido por Atlassian. ") + msg410;
+                store._warn("HTTP 410 — Atlassian removió este endpoint.");
+                store._warn("El plasmoide usa /rest/api/3/search/jql; si Atlassian publica un cambio nuevo,");
+                store._warn("revisá https://developer.atlassian.com/changelog/ para la URL actual.");
+                store._warn("Mensaje del servidor: " + msg410);
                 store._bump();
                 store.fetchFinished(false);
             } else if (xhr.status === 400) {
