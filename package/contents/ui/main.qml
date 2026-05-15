@@ -112,7 +112,7 @@ Item {
         target: plasmoid.configuration
 
         function onCategoryCountChanged() {
-            var n = Math.min(4, Math.max(1, plasmoid.configuration.categoryCount || 4));
+            var n = Math.min(7, Math.max(1, plasmoid.configuration.categoryCount || 4));
             _store.reassignOutOfRangeCategories(n);
         }
         function onCategoryNamesChanged() {

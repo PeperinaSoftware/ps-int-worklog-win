@@ -9,25 +9,25 @@
 
     <group name="General">
         <entry name="mode" type="String">
-            <label>Operating mode: "todo" (local task list) or "jira" (read assigned issues from Jira)</label>
+            <label>Operating mode: "todo" (local task list), "jira" (Jira issues), "gh" (GitHub Projects) or "notion" (Notion pages via the ntn CLI).</label>
             <default>todo</default>
         </entry>
 
         <entry name="categoryCount" type="Int">
-            <label>Number of active categories (1..4)</label>
+            <label>Number of active categories (1..7)</label>
             <default>4</default>
             <min>1</min>
-            <max>4</max>
+            <max>7</max>
         </entry>
 
         <entry name="categoryNames" type="StringList">
-            <label>Names for each category</label>
-            <default>Personal,Trabajo,Estudio,Otros</default>
+            <label>Names for each category (up to 7)</label>
+            <default>Personal,Trabajo,Estudio,Otros,Salud,Hogar,Hobbies</default>
         </entry>
 
         <entry name="categoryColors" type="StringList">
-            <label>Hex colors for each category</label>
-            <default>#2ecc71,#f1c40f,#3498db,#e74c3c</default>
+            <label>Hex colors for each category (up to 7)</label>
+            <default>#2ecc71,#f1c40f,#3498db,#e74c3c,#9b59b6,#1abc9c,#e67e22</default>
         </entry>
 
         <entry name="showPriorityIcons" type="Bool">
@@ -56,8 +56,8 @@
         </entry>
 
         <entry name="panelCounterColors" type="StringList">
-            <label>Per-category counter text color: "white" or "black"</label>
-            <default>white,black,white,white</default>
+            <label>Per-category counter text color: "white" or "black" (up to 7)</label>
+            <default>white,black,white,white,white,white,white</default>
         </entry>
 
         <entry name="popupWidth" type="Int">
@@ -237,6 +237,39 @@
         <entry name="ghCategoryFilterValues" type="StringList">
             <label>Value to match for each GitHub category (use ';' for OR)</label>
             <default>Todo,In Progress,Done,</default>
+        </entry>
+
+        <!-- Notion integration via the `ntn` CLI. Auth is delegated entirely
+             to ntn — the user must have run `ntn login` (or have set
+             NOTION_API_TOKEN). The plasmoid only shells out to ntn and
+             parses its stdout. See docs/NOTION.md. -->
+        <entry name="notionQuery" type="String">
+            <label>Free-text query for /v1/search (empty = all pages)</label>
+            <default></default>
+        </entry>
+        <entry name="notionFilter" type="String">
+            <label>"page" or "database" (filters /v1/search by object type)</label>
+            <default>page</default>
+        </entry>
+        <entry name="notionMaxResults" type="Int">
+            <label>Maximum number of Notion pages to fetch per call</label>
+            <default>50</default>
+            <min>10</min>
+            <max>200</max>
+        </entry>
+        <entry name="notionRefreshMinutes" type="Int">
+            <label>Auto-refresh interval in minutes (0 = manual only)</label>
+            <default>10</default>
+            <min>0</min>
+            <max>1440</max>
+        </entry>
+        <entry name="notionCliPath" type="String">
+            <label>Path to the ntn binary (empty = let $PATH resolve it)</label>
+            <default></default>
+        </entry>
+        <entry name="notionDebug" type="Bool">
+            <label>Log Notion fetch / parse details to plasmashell stdout</label>
+            <default>true</default>
         </entry>
     </group>
 </kcfg>

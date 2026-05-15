@@ -30,6 +30,36 @@ Item {
             id: tabs
             Layout.fillWidth: true
 
+            // Global: shows every task from every category, color-coded.
+            QQC2.TabButton {
+                id: globalTab
+                leftPadding: 8
+                rightPadding: 8
+                property int pending: (store.version, store.totalPending())
+                contentItem: RowLayout {
+                    spacing: 6
+                    PlasmaCore.IconItem {
+                        source: "view-list-tree"
+                        Layout.preferredWidth: 12
+                        Layout.preferredHeight: 12
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                    PlasmaComponents3.Label {
+                        text: i18n("Global")
+                        elide: Text.ElideRight
+                        Layout.fillWidth: true
+                        Layout.alignment: Qt.AlignVCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                    TabCountBadge {
+                        visible: globalTab.pending > 0
+                        count: globalTab.pending
+                        badgeColor: PlasmaCore.Theme.highlightColor
+                        Layout.alignment: Qt.AlignVCenter
+                    }
+                }
+            }
+
             Repeater {
                 model: cats.count()
                 QQC2.TabButton {
@@ -98,6 +128,13 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             currentIndex: tabs.currentIndex
+
+            // Index 0: Global view (matches the position of globalTab above).
+            GlobalView {
+                store: todoView.store
+                onEditTaskRequested: taskDialog.openEdit(task)
+                onEditSubtaskRequested: subDialog.openFor(task, subtask)
+            }
 
             Repeater {
                 model: cats.count()

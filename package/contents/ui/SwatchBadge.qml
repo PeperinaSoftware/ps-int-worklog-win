@@ -9,6 +9,7 @@
 
 import QtQuick 2.15
 import QtQuick.Layouts 1.15
+import QtQuick.Controls 2.15 as QQC2
 import org.kde.plasma.core 2.0 as PlasmaCore
 import org.kde.plasma.components 3.0 as PlasmaComponents3
 
@@ -25,6 +26,12 @@ Item {
     property bool insideMode: false
     property int smallSwatch: 12
     property int bigSwatch: 22
+
+    // Optional hover tooltip. When non-empty a tooltip is shown after a short
+    // delay; the HoverHandler doesn't consume click/wheel so the parent's
+    // MouseArea still cycles modes and opens the popup.
+    property string tooltipTitle: ""
+    property string tooltipBody: ""
 
     visible: showZero || count > 0
     implicitWidth:  insideMode ? insideRow.implicitWidth : rightRow.implicitWidth
@@ -94,6 +101,41 @@ Item {
             text: badge.label
             font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
             opacity: 0.75
+        }
+    }
+
+    // -------- Hover tooltip --------
+    HoverHandler {
+        id: _hover
+        // Hover detection only; does not consume click/wheel events.
+    }
+    QQC2.ToolTip {
+        parent: badge
+        visible: _hover.hovered && (badge.tooltipTitle.length > 0 || badge.tooltipBody.length > 0)
+        delay: 400
+        timeout: 8000
+        contentItem: ColumnLayout {
+            spacing: 2
+            PlasmaComponents3.Label {
+                visible: badge.tooltipTitle.length > 0
+                text: badge.tooltipTitle
+                font.bold: true
+                color: PlasmaCore.Theme.textColor
+            }
+            PlasmaComponents3.Label {
+                visible: badge.tooltipBody.length > 0
+                text: badge.tooltipBody
+                color: PlasmaCore.Theme.textColor
+                wrapMode: Text.WordWrap
+                Layout.maximumWidth: 320
+            }
+        }
+        background: Rectangle {
+            color: PlasmaCore.Theme.backgroundColor
+            border.color: PlasmaCore.Theme.textColor
+            border.width: 1
+            radius: 3
+            opacity: 0.97
         }
     }
 }

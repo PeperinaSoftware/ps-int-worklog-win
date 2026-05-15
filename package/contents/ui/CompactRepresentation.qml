@@ -42,6 +42,29 @@ Item {
         return (v === "black") ? "black" : "white";
     }
 
+    // Builds the tooltip body for a ToDo category: a bulleted list of the
+    // pending task titles, capped at 10 entries with a "+N más" suffix.
+    function _todoTooltipBody(idx) {
+        if (!store) return "";
+        var pending = [];
+        var all = store.tasksForCategory(idx);
+        for (var i = 0; i < all.length; i++) {
+            if (!all[i].done) pending.push(all[i]);
+        }
+        if (pending.length === 0) return i18n("Sin tareas pendientes.");
+        var lines = [];
+        var max = 10;
+        for (var j = 0; j < Math.min(max, pending.length); j++) {
+            var t = pending[j];
+            var prio = t.priority ? " [" + t.priority + "]" : "";
+            lines.push("• " + (t.title || "(sin título)") + prio);
+        }
+        if (pending.length > max) {
+            lines.push(i18np("…y %1 más.", "…y %1 más.", pending.length - max));
+        }
+        return lines.join("\n");
+    }
+
     function _jiraTextColor(idx) {
         var arr = plasmoid.configuration.jiraCategoryTextColors || [];
         var v = arr[idx];
@@ -123,6 +146,8 @@ Item {
                 insideMode: plasmoid.configuration.panelCounterStyle === "inside"
                 smallSwatch: compact._smallSwatch
                 bigSwatch: compact._bigSwatch
+                tooltipTitle: cats.name(index)
+                tooltipBody: (compact._vTodo, compact._todoTooltipBody(index))
             }
         }
 
