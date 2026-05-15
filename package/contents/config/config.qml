@@ -37,4 +37,9 @@ ConfigModel {
         icon: "preferences-desktop-color"
         source: "configGhCategories.qml"
     }
+    ConfigCategory {
+        name: i18n("Notion")
+        icon: "notes"
+        source: "configNotion.qml"
+    }
 }

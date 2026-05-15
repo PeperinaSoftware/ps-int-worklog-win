@@ -2,10 +2,11 @@
  * main.qml - Categorized ToDo plasmoid root.
  *
  * Hosts both representations and owns the shared stores. The plasmoid
- * has three operating modes (configurable):
- *   - "todo": local task list (TaskStore + SQLite).
- *   - "jira": read-only view of Jira issues assigned to the user.
- *   - "gh":   read-only view of a GitHub Projects (V2) project.
+ * has four operating modes (configurable):
+ *   - "todo":   local task list (TaskStore + SQLite).
+ *   - "jira":   read-only view of Jira issues assigned to the user.
+ *   - "gh":     read-only view of a GitHub Projects (V2) project.
+ *   - "notion": pages from Notion via the `ntn` CLI (read + inline edit).
  *
  * Persistence: SQLite via QtQuick.LocalStorage 2.15. See
  * docs/PERSISTENCE.md for the storage path and layout.
@@ -28,6 +29,7 @@ Item {
         store: _store
         jira: _jira
         gh: _gh
+        notion: _notion
         Layout.minimumWidth: plasmoid.configuration.popupWidth
         Layout.minimumHeight: plasmoid.configuration.popupHeight
         Layout.preferredWidth: plasmoid.configuration.popupWidth
@@ -38,11 +40,13 @@ Item {
         store: _store
         jira: _jira
         gh: _gh
+        notion: _notion
     }
 
     Plasmoid.toolTipMainText: {
-        if (root.mode === "jira") return i18n("Jira — assigned issues");
-        if (root.mode === "gh")   return i18n("GitHub Projects");
+        if (root.mode === "jira")   return i18n("Jira — assigned issues");
+        if (root.mode === "gh")     return i18n("GitHub Projects");
+        if (root.mode === "notion") return i18n("Notion pages");
         return i18n("Categorized ToDo");
     }
 
@@ -56,6 +60,11 @@ Item {
             if (!_gh) return "";
             if (_gh.lastError) return _gh.lastError;
             return i18np("%1 item", "%1 items", _gh.totalCount());
+        }
+        if (root.mode === "notion") {
+            if (!_notion) return "";
+            if (_notion.lastError) return _notion.lastError;
+            return i18np("%1 page", "%1 pages", _notion.totalCount());
         }
         return _store ? i18np("%1 pending task", "%1 pending tasks", _store.totalPending()) : "";
     }
@@ -82,16 +91,23 @@ Item {
         database: _db
     }
 
+    NotionStore {
+        id: _notion
+        plasmoidApi: plasmoid
+    }
+
     Component.onCompleted: {
         // Belt-and-suspenders: re-assign plasmoidApi explicitly in case the
         // declarative binding above didn't fire for some reason.
-        _jira.plasmoidApi = plasmoid;
-        _gh.plasmoidApi   = plasmoid;
+        _jira.plasmoidApi   = plasmoid;
+        _gh.plasmoidApi     = plasmoid;
+        _notion.plasmoidApi = plasmoid;
 
         _db.init();
         _store.load();
         _jira.init();
         _gh.init();
+        _notion.init();
 
         // The init() above may have written restored credentials back
         // into Plasmoid.configuration; mirror them straight back into
@@ -104,6 +120,9 @@ Item {
         }
         if (root.mode === "gh" && _gh.lastFetchedAt === 0) {
             _gh.fetch();
+        }
+        if (root.mode === "notion" && _notion.lastFetchedAt === 0) {
+            _notion.fetch();
         }
     }
 
@@ -133,12 +152,18 @@ Item {
         function onGhOwnerChanged() { _gh.persistCredentials(); }
         function onGhRefreshMinutesChanged() { _gh.applyRefreshSchedule(); }
 
+        // Notion has no credentials in config (ntn login does the work).
+        function onNotionRefreshMinutesChanged() { _notion.applyRefreshSchedule(); }
+
         function onModeChanged() {
             if (root.mode === "jira" && _jira.lastFetchedAt === 0 && !_jira.loading) {
                 _jira.fetch();
             }
             if (root.mode === "gh" && _gh.lastFetchedAt === 0 && !_gh.loading) {
                 _gh.fetch();
+            }
+            if (root.mode === "notion" && _notion.lastFetchedAt === 0 && !_notion.loading) {
+                _notion.fetch();
             }
         }
     }

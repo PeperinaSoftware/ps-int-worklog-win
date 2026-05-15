@@ -1,8 +1,8 @@
 /*
  * FullRepresentation.qml - mode-aware dispatcher for the popup contents.
  *
- * Renders TodoView when mode == "todo", JiraView when mode == "jira",
- * GhView when mode == "gh". Switching is reactive: the StackLayout
+ * Renders TodoView for "todo", JiraView for "jira", GhView for "gh", and
+ * NotionView for "notion". Switching is reactive: the StackLayout
  * currentIndex follows the configuration change immediately.
  */
 
@@ -16,12 +16,20 @@ Item {
     property var store
     property var jira
     property var gh
+    property var notion
 
     readonly property string mode: plasmoid.configuration.mode || "todo"
 
+    function _modeIndex() {
+        if (full.mode === "jira")   return 1;
+        if (full.mode === "gh")     return 2;
+        if (full.mode === "notion") return 3;
+        return 0;
+    }
+
     StackLayout {
         anchors.fill: parent
-        currentIndex: full.mode === "jira" ? 1 : (full.mode === "gh" ? 2 : 0)
+        currentIndex: full._modeIndex()
 
         TodoView {
             store: full.store
@@ -33,6 +41,10 @@ Item {
 
         GhView {
             gh: full.gh
+        }
+
+        NotionView {
+            notion: full.notion
         }
     }
 }

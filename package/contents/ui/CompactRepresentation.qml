@@ -1,15 +1,17 @@
 /*
  * CompactRepresentation.qml - panel / system-tray view.
  *
- * Three operating modes:
- *   - "todo": one swatch + count per ToDo category.
- *   - "jira": one swatch + count per Jira category (configurable).
- *   - "gh":   one swatch + count per GitHub Projects category.
+ * Four operating modes:
+ *   - "todo":   one swatch + count per ToDo category. Hover shows the
+ *               pending tasks for that category as a tooltip.
+ *   - "jira":   one swatch + count per Jira category (configurable).
+ *   - "gh":     one swatch + count per GitHub Projects category.
+ *   - "notion": a single Notion-colored swatch + total page count.
  *
  * Inside each mode, the layout follows panelCounterStyle ("right" or
  * "inside") and panelCounterColors (white | black per swatch).
  *
- * Mouse wheel over the compact view cycles through the three modes.
+ * Mouse wheel over the compact view cycles through the four modes.
  */
 
 import QtQuick 2.15
@@ -23,13 +25,15 @@ Item {
     property var store
     property var jira
     property var gh
+    property var notion
 
     readonly property string mode: plasmoid.configuration.mode || "todo"
-    readonly property int _vTodo: store ? store.version : 0
-    readonly property int _vJira: jira ? jira.version : 0
-    readonly property int _vGh:   gh   ? gh.version   : 0
+    readonly property int _vTodo:   store  ? store.version  : 0
+    readonly property int _vJira:   jira   ? jira.version   : 0
+    readonly property int _vGh:     gh     ? gh.version     : 0
+    readonly property int _vNotion: notion ? notion.version : 0
 
-    readonly property var _modeOrder: ["todo", "jira", "gh"]
+    readonly property var _modeOrder: ["todo", "jira", "gh", "notion"]
 
     CategoryHelper { id: cats }
 
@@ -182,6 +186,32 @@ Item {
                 insideMode: plasmoid.configuration.panelCounterStyle === "inside"
                 smallSwatch: compact._smallSwatch
                 bigSwatch: compact._bigSwatch
+            }
+        }
+
+        // -------- NOTION mode --------
+        // Notion has no native categorization, so we render a single swatch
+        // with the total page count.
+        SwatchBadge {
+            visible: compact.mode === "notion"
+            catIndex: 0
+            color: "#37352f"   // Notion's brand black-ish
+            count: (compact._vNotion, notion ? notion.totalCount() : 0)
+            showZero: true
+            label: i18n("Notion")
+            showLabel: plasmoid.configuration.panelShowLabels
+            textColor: "white"
+            insideMode: plasmoid.configuration.panelCounterStyle === "inside"
+            smallSwatch: compact._smallSwatch
+            bigSwatch: compact._bigSwatch
+            tooltipTitle: i18n("Notion")
+            tooltipBody: {
+                if (!notion) return "";
+                if (notion.loading) return i18n("Cargando…");
+                if (notion.lastError) return notion.lastError;
+                return i18np("%1 página sincronizada.",
+                             "%1 páginas sincronizadas.",
+                             (compact._vNotion, notion.totalCount()));
             }
         }
     }

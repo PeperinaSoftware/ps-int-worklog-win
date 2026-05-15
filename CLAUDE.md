@@ -34,19 +34,20 @@ There is **no test suite, no linter, no build step** — `package/` is the deliv
 
 ## Architecture
 
-### Three operating modes, one widget
+### Four operating modes, one widget
 
 `main.qml` is a thin dispatcher. `plasmoid.configuration.mode` selects between:
 
-- **`todo`** — local list (`TodoView.qml`) backed by `TaskStore` + SQLite.
+- **`todo`** — local list (`TodoView.qml`) backed by `TaskStore` + SQLite. Up to **7** user-defined categories (`Math.min(7, …)` clamp everywhere) plus an always-on "Global" tab (`GlobalView.qml`) that lists every task across categories using TaskItem's color stripe. The compact view shows hover tooltips with each category's pending titles.
 - **`jira`** — read-only (`JiraView.qml`) of issues from Jira Cloud REST v3, backed by `JiraStore` + SQLite cache.
 - **`gh`** — read-only (`GhView.qml`) of items from a GitHub Projects (V2) project, fetched via GraphQL v4 and backed by `GhStore` + SQLite cache (`gh_cache` table, schema v2).
+- **`notion`** — list + inline-edit (`NotionView.qml`) of Notion pages via the `ntn` CLI. `NotionStore.qml` shells out via `PlasmaCore.DataSource { engine: "executable" }` (wrapping every command in `sh -c '<cmd>'` with POSIX single-quote escaping for shell safety) and parses JSON/Markdown from stdout. Auth is delegated to `ntn login` — the plasmoid never sees the token. See `docs/NOTION.md`.
 
-Both `FullRepresentation.qml` (popup) and `CompactRepresentation.qml` (panel) branch on `mode`. The compact view shows per-category swatches with counts in every mode; clicking opens the popup. **Mouse wheel over the compact view cycles `todo → jira → gh → todo`** by writing to `plasmoid.configuration.mode` directly — implemented in `CompactRepresentation.qml` root `MouseArea.onWheel`.
+Both `FullRepresentation.qml` (popup) and `CompactRepresentation.qml` (panel) branch on `mode`. The compact view shows per-category swatches with counts in every mode (Notion is a single swatch — no native categorization); clicking opens the popup. **Mouse wheel over the compact view cycles `todo → jira → gh → notion → todo`** by writing to `plasmoid.configuration.mode` directly — implemented in `CompactRepresentation.qml` root `MouseArea.onWheel`.
 
 ### Stores own the state, views are dumb
 
-`main.qml` instantiates one `Database`, one `TaskStore`, one `JiraStore` and one `GhStore`, and injects them down through `store:` / `jira:` / `gh:` properties. Every QML view receives them as properties — they never reach for `plasmoid` or the DB themselves. Mutations go through store methods (`addTask`, `archiveTask`, `toggleSubtaskDone`, `fetch`, …); each store bumps a `version` int and emits `changed()` so QML bindings refresh. Plain JS arrays of plain objects are the in-memory model — there is no `ListModel`.
+`main.qml` instantiates one `Database`, one `TaskStore`, one `JiraStore`, one `GhStore` and one `NotionStore`, and injects them down through `store:` / `jira:` / `gh:` / `notion:` properties. Every QML view receives them as properties — they never reach for `plasmoid` or the DB themselves. Mutations go through store methods (`addTask`, `archiveTask`, `toggleSubtaskDone`, `fetch`, `updatePage`, …); each store bumps a `version` int and emits `changed()` so QML bindings refresh. Plain JS arrays of plain objects are the in-memory model — there is no `ListModel`.
 
 ### Persistence: SQLite via QtQuick.LocalStorage
 
