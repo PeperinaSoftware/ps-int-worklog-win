@@ -35,6 +35,12 @@ Item {
 
     readonly property var _modeOrder: ["todo", "jira", "gh", "notion"]
 
+    // Emitted whenever a swatch gains or loses hover. main.qml uses this
+    // to swap Plasmoid.toolTipMainText / toolTipSubText so the *native*
+    // Plasma tooltip (the one above the panel) shows the per-square detail
+    // instead of overlapping the widget with our own QQC2 tooltip.
+    signal hoverChanged(bool isHovered, string mainText, string subText)
+
     CategoryHelper { id: cats }
 
     readonly property int _smallSwatch: Math.max(10, PlasmaCore.Units.iconSizes.small - 2)
@@ -152,6 +158,7 @@ Item {
                 bigSwatch: compact._bigSwatch
                 tooltipTitle: cats.name(index)
                 tooltipBody: (compact._vTodo, compact._todoTooltipBody(index))
+                onHoverChanged: function(isHov, m, s) { compact.hoverChanged(isHov, m, s); }
             }
         }
 
@@ -169,6 +176,14 @@ Item {
                 insideMode: plasmoid.configuration.panelCounterStyle === "inside"
                 smallSwatch: compact._smallSwatch
                 bigSwatch: compact._bigSwatch
+                tooltipTitle: compact._jiraName(index)
+                tooltipBody: {
+                    if (!jira) return "";
+                    var c = (compact._vJira, jira.countByJiraCategory(index));
+                    return i18np("%1 incidencia en esta categoría.",
+                                 "%1 incidencias en esta categoría.", c);
+                }
+                onHoverChanged: function(isHov, m, s) { compact.hoverChanged(isHov, m, s); }
             }
         }
 
@@ -186,6 +201,14 @@ Item {
                 insideMode: plasmoid.configuration.panelCounterStyle === "inside"
                 smallSwatch: compact._smallSwatch
                 bigSwatch: compact._bigSwatch
+                tooltipTitle: compact._ghName(index)
+                tooltipBody: {
+                    if (!gh) return "";
+                    var c = (compact._vGh, gh.countByGhCategory(index));
+                    return i18np("%1 ítem en esta categoría.",
+                                 "%1 ítems en esta categoría.", c);
+                }
+                onHoverChanged: function(isHov, m, s) { compact.hoverChanged(isHov, m, s); }
             }
         }
 
@@ -213,6 +236,7 @@ Item {
                              "%1 páginas sincronizadas.",
                              (compact._vNotion, notion.totalCount()));
             }
+            onHoverChanged: function(isHov, m, s) { compact.hoverChanged(isHov, m, s); }
         }
     }
 }

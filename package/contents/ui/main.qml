@@ -25,6 +25,12 @@ Item {
 
     readonly property string mode: plasmoid.configuration.mode || "todo"
 
+    // Set by the CompactRepresentation's hover signal so the native Plasma
+    // tooltip (Plasmoid.toolTipMainText/SubText) can show per-square detail
+    // instead of always showing the widget-wide summary. Empty = use default.
+    property string compactHoverMain: ""
+    property string compactHoverSub: ""
+
     Plasmoid.fullRepresentation: FullRepresentation {
         store: _store
         jira: _jira
@@ -41,9 +47,15 @@ Item {
         jira: _jira
         gh: _gh
         notion: _notion
+        onHoverChanged: function(isHov, mainText, subText) {
+            root.compactHoverMain = isHov ? mainText : "";
+            root.compactHoverSub  = isHov ? subText  : "";
+        }
     }
 
     Plasmoid.toolTipMainText: {
+        // Per-square hover wins over the widget-wide summary.
+        if (root.compactHoverMain.length > 0) return root.compactHoverMain;
         if (root.mode === "jira")   return i18n("Jira — assigned issues");
         if (root.mode === "gh")     return i18n("GitHub Projects");
         if (root.mode === "notion") return i18n("Notion pages");
@@ -51,6 +63,7 @@ Item {
     }
 
     Plasmoid.toolTipSubText: {
+        if (root.compactHoverSub.length > 0) return root.compactHoverSub;
         if (root.mode === "jira") {
             if (!_jira) return "";
             if (_jira.lastError) return _jira.lastError;
