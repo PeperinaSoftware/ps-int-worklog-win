@@ -24,7 +24,20 @@ Item {
     CategoryHelper { id: cats }
 
     readonly property int _v: store ? store.version : 0
-    readonly property var filtered: (_v, store ? store.tasksForCategory(catIndex) : [])
+    readonly property var _allInCategory: (_v, store ? store.tasksForCategory(catIndex) : [])
+    readonly property var filtered: view._applyFilter(_allInCategory, searchField.text)
+
+    function _applyFilter(arr, q) {
+        if (!q || q.trim().length === 0) return arr;
+        var needle = q.trim().toLowerCase();
+        var out = [];
+        for (var i = 0; i < arr.length; i++) {
+            var t = arr[i];
+            var hay = ((t.title || "") + " " + (t.description || "")).toLowerCase();
+            if (hay.indexOf(needle) >= 0) out.push(t);
+        }
+        return out;
+    }
 
     ColumnLayout {
         anchors.fill: parent
@@ -43,7 +56,7 @@ Item {
             PlasmaComponents3.Label {
                 Layout.fillWidth: true
                 text: {
-                    var total = view.filtered.length;
+                    var total = view._allInCategory.length;
                     var pending = store.pendingCountForCategory(view.catIndex);
                     return i18n("%1 — %2 pending of %3",
                                 cats.name(view.catIndex), pending, total);
@@ -72,24 +85,29 @@ Item {
             }
         }
 
-        // Quick-add row.
+        // Search row (filters within this category as you type).
         RowLayout {
             Layout.fillWidth: true
+            spacing: PlasmaCore.Units.smallSpacing
 
+            PlasmaCore.IconItem {
+                source: "search"
+                Layout.preferredWidth: 16
+                Layout.preferredHeight: 16
+            }
             PlasmaComponents3.TextField {
-                id: quickAddField
+                id: searchField
                 Layout.fillWidth: true
-                placeholderText: i18n("Type a task title and press Enter…")
-                onAccepted: view._commitQuickAdd()
+                placeholderText: i18n("Buscar tareas en esta categoría…")
+                Keys.onEscapePressed: text = ""
             }
-            PrioritySelector {
-                id: quickAddPrio
-                value: "M"
-                Layout.preferredWidth: 90
-            }
-            PlasmaComponents3.Button {
-                icon.name: "list-add"
-                onClicked: view._commitQuickAdd()
+            PlasmaComponents3.ToolButton {
+                visible: searchField.text.length > 0
+                icon.name: "edit-clear"
+                onClicked: searchField.text = ""
+                PlasmaComponents3.ToolTip.text: i18n("Limpiar búsqueda")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
             }
         }
 
@@ -114,19 +132,15 @@ Item {
                 PlasmaComponents3.Label {
                     anchors.centerIn: parent
                     visible: list.count === 0
-                    text: i18n("No tasks in this category yet.")
+                    width: parent.width - 40
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    text: searchField.text.length > 0
+                          ? i18n("Ninguna tarea coincide con la búsqueda.")
+                          : i18n("No tasks in this category yet. Usá «New…» para crear una.")
                     opacity: 0.55
                 }
             }
         }
-    }
-
-    function _commitQuickAdd() {
-        var t = quickAddField.text.trim();
-        if (t.length === 0) return;
-        store.addTask(t, catIndex, quickAddPrio.value, "");
-        quickAddField.text = "";
-        quickAddPrio.value = "M";
-        quickAddField.forceActiveFocus();
     }
 }

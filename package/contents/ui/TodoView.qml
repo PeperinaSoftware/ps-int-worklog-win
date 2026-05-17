@@ -20,6 +20,11 @@ Item {
 
     CategoryHelper { id: cats }
 
+    // Global + N category tabs + Archive. Each tab is sized to a 1/N share
+    // of the bar so they always fill the popup width.
+    readonly property int _tabCount: 2 + cats.count()
+    readonly property real _tabWidth: tabs.width / Math.max(1, _tabCount)
+
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: PlasmaCore.Units.smallSpacing
@@ -33,8 +38,9 @@ Item {
             // Global: shows every task from every category, color-coded.
             QQC2.TabButton {
                 id: globalTab
-                leftPadding: 8
-                rightPadding: 8
+                width: todoView._tabWidth
+                leftPadding: 6
+                rightPadding: 6
                 property int pending: (store.version, store.totalPending())
                 contentItem: RowLayout {
                     spacing: 6
@@ -64,9 +70,10 @@ Item {
                 model: cats.count()
                 QQC2.TabButton {
                     id: catTab
+                    width: todoView._tabWidth
                     property int pending: (store.version, store.pendingCountForCategory(index))
-                    leftPadding: 8
-                    rightPadding: 8
+                    leftPadding: 6
+                    rightPadding: 6
                     contentItem: RowLayout {
                         spacing: 6
                         Rectangle {
@@ -95,8 +102,9 @@ Item {
 
             QQC2.TabButton {
                 id: archiveTab
-                leftPadding: 8
-                rightPadding: 8
+                width: todoView._tabWidth
+                leftPadding: 6
+                rightPadding: 6
                 contentItem: RowLayout {
                     spacing: 6
                     PlasmaCore.IconItem {
@@ -167,6 +175,7 @@ Item {
                 opacity: 0.6
                 font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
             }
+            ModeMenuButton {}
             PlasmaComponents3.ToolButton {
                 icon.name: "configure"
                 text: i18n("Configure…")

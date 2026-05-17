@@ -93,7 +93,7 @@ Kirigami.FormLayout {
         id: popupW
         Kirigami.FormData.label: i18n("Ancho del popup (px):")
         from: 280
-        to: 900
+        to: 1200
         stepSize: 10
     }
 

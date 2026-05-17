@@ -189,6 +189,7 @@ Item {
                 font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
             }
 
+            ModeMenuButton {}
             PlasmaComponents3.ToolButton {
                 icon.name: "configure"
                 text: i18n("Configurar…")

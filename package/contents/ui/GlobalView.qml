@@ -23,7 +23,8 @@ Item {
     CategoryHelper { id: cats }
 
     readonly property int _v: store ? store.version : 0
-    readonly property var allTasks: (_v, view._collect())
+    readonly property var _allTasks: (_v, view._collect())
+    readonly property var filtered: view._applyFilter(_allTasks, searchField.text)
 
     function _collect() {
         if (!store || !store.tasks) return [];
@@ -46,9 +47,22 @@ Item {
         return out;
     }
 
+    function _applyFilter(arr, q) {
+        if (!q || q.trim().length === 0) return arr;
+        var needle = q.trim().toLowerCase();
+        var out = [];
+        for (var i = 0; i < arr.length; i++) {
+            var t = arr[i];
+            var name = (cats.name(t.category | 0) || "").toLowerCase();
+            var hay = ((t.title || "") + " " + (t.description || "") + " " + name).toLowerCase();
+            if (hay.indexOf(needle) >= 0) out.push(t);
+        }
+        return out;
+    }
+
     function _pendingCount() {
         var c = 0;
-        for (var i = 0; i < view.allTasks.length; i++) if (!view.allTasks[i].done) c++;
+        for (var i = 0; i < view._allTasks.length; i++) if (!view._allTasks[i].done) c++;
         return c;
     }
 
@@ -68,7 +82,7 @@ Item {
             PlasmaComponents3.Label {
                 Layout.fillWidth: true
                 text: i18n("Global — %1 pending of %2",
-                           view._pendingCount(), view.allTasks.length)
+                           view._pendingCount(), view._allTasks.length)
                 font.bold: true
                 elide: Text.ElideRight
             }
@@ -90,6 +104,32 @@ Item {
             }
         }
 
+        // Search row (filters across categories — also matches the category name).
+        RowLayout {
+            Layout.fillWidth: true
+            spacing: PlasmaCore.Units.smallSpacing
+
+            PlasmaCore.IconItem {
+                source: "search"
+                Layout.preferredWidth: 16
+                Layout.preferredHeight: 16
+            }
+            PlasmaComponents3.TextField {
+                id: searchField
+                Layout.fillWidth: true
+                placeholderText: i18n("Buscar tareas en todas las categorías…")
+                Keys.onEscapePressed: text = ""
+            }
+            PlasmaComponents3.ToolButton {
+                visible: searchField.text.length > 0
+                icon.name: "edit-clear"
+                onClicked: searchField.text = ""
+                PlasmaComponents3.ToolTip.text: i18n("Limpiar búsqueda")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
+            }
+        }
+
         QQC2.ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -98,7 +138,7 @@ Item {
             ListView {
                 id: list
                 spacing: 4
-                model: view.allTasks
+                model: view.filtered
                 delegate: TaskItem {
                     width: list.width
                     task: modelData
@@ -111,7 +151,12 @@ Item {
                 PlasmaComponents3.Label {
                     anchors.centerIn: parent
                     visible: list.count === 0
-                    text: i18n("No tasks yet. Crea una en una categoría específica.")
+                    width: parent.width - 40
+                    horizontalAlignment: Text.AlignHCenter
+                    wrapMode: Text.WordWrap
+                    text: searchField.text.length > 0
+                          ? i18n("Ninguna tarea coincide con la búsqueda.")
+                          : i18n("No tasks yet. Crea una en una categoría específica.")
                     opacity: 0.55
                 }
             }

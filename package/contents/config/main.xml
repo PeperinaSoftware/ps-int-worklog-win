@@ -62,14 +62,14 @@
 
         <entry name="popupWidth" type="Int">
             <label>Popup width in pixels</label>
-            <default>420</default>
+            <default>700</default>
             <min>280</min>
-            <max>900</max>
+            <max>1200</max>
         </entry>
 
         <entry name="popupHeight" type="Int">
             <label>Popup height in pixels</label>
-            <default>500</default>
+            <default>650</default>
             <min>300</min>
             <max>1200</max>
         </entry>
