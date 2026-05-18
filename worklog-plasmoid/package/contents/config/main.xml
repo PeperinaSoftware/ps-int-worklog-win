@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE kcfg SYSTEM "http://www.kde.org/standards/kcfg/1.0/kcfg.dtd">
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+
+    <!-- Intentionally shared with the Categorized ToDo plasmoid: both apps
+         declare the same Jira* kcfg entries against the same file, so the
+         credentials live in one place and editing them in either widget's
+         config dialog updates both. -->
+    <kcfgfile name="categorizedtodorc"/>
+
+    <group name="General">
+        <!-- Shared with the ToDo plasmoid -->
+        <entry name="jiraSite" type="String">
+            <label>Jira Cloud site, e.g. https://your-company.atlassian.net</label>
+            <default></default>
+        </entry>
+        <entry name="jiraEmail" type="String">
+            <label>Jira account email</label>
+            <default></default>
+        </entry>
+        <entry name="jiraToken" type="String">
+            <label>Jira API token (NOT password)</label>
+            <default></default>
+        </entry>
+
+        <!-- Worklog-specific config -->
+        <entry name="worklogViewMode" type="String">
+            <label>"9h" (09:00-18:00) or "24h" (00:00-24:00)</label>
+            <default>9h</default>
+        </entry>
+        <entry name="worklogPopupWidth" type="Int">
+            <label>Popup width in pixels</label>
+            <default>1100</default>
+            <min>600</min>
+            <max>2200</max>
+        </entry>
+        <entry name="worklogPopupHeight" type="Int">
+            <label>Popup height in pixels</label>
+            <default>650</default>
+            <min>400</min>
+            <max>1500</max>
+        </entry>
+        <entry name="worklogDailyTargetHours" type="Double">
+            <label>Daily target hours (used for the per-day diff in the totals row)</label>
+            <default>8</default>
+            <min>0</min>
+            <max>24</max>
+        </entry>
+        <entry name="worklogIssueJql" type="String">
+            <label>JQL used to populate the issue picker in the new-worklog modal</label>
+            <default>assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC</default>
+        </entry>
+        <entry name="worklogIssueMax" type="Int">
+            <label>Max issues to show in the picker</label>
+            <default>50</default>
+            <min>10</min>
+            <max>200</max>
+        </entry>
+        <entry name="worklogDebug" type="Bool">
+            <label>Log every Jira request to plasmashell stdout</label>
+            <default>true</default>
+        </entry>
+    </group>
+</kcfg>

@@ -1,0 +1,99 @@
+/*
+ * configGeneral.qml - General tab.
+ * Bindings to KCfg entries via the cfg_* alias / property pattern.
+ */
+
+import QtQuick 2.15
+import QtQuick.Layouts 1.15
+import QtQuick.Controls 2.15
+import org.kde.kirigami 2.5 as Kirigami
+
+Kirigami.FormLayout {
+    id: page
+
+    property string cfg_worklogViewMode: "9h"
+    property alias  cfg_worklogPopupWidth:        popupW.value
+    property alias  cfg_worklogPopupHeight:       popupH.value
+    property alias  cfg_worklogDailyTargetHours:  targetSpin.value
+    property alias  cfg_worklogIssueJql:          jqlField.text
+    property alias  cfg_worklogIssueMax:          maxSpin.value
+    property alias  cfg_worklogDebug:             debugCheck.checked
+
+    ButtonGroup { id: viewGroup }
+
+    RowLayout {
+        Kirigami.FormData.label: i18n("Modo de vista:")
+        spacing: Kirigami.Units.smallSpacing
+
+        RadioButton {
+            ButtonGroup.group: viewGroup
+            text: i18n("9h (09:00 – 18:00)")
+            checked: page.cfg_worklogViewMode === "9h"
+            onToggled: if (checked) page.cfg_worklogViewMode = "9h"
+        }
+        RadioButton {
+            ButtonGroup.group: viewGroup
+            text: i18n("24h (00:00 – 24:00)")
+            checked: page.cfg_worklogViewMode === "24h"
+            onToggled: if (checked) page.cfg_worklogViewMode = "24h"
+        }
+    }
+
+    Item { Kirigami.FormData.isSection: true }
+
+    SpinBox {
+        id: popupW
+        Kirigami.FormData.label: i18n("Ancho del popup (px):")
+        from: 600
+        to: 2200
+        stepSize: 20
+    }
+    SpinBox {
+        id: popupH
+        Kirigami.FormData.label: i18n("Alto del popup (px):")
+        from: 400
+        to: 1500
+        stepSize: 20
+    }
+
+    Item { Kirigami.FormData.isSection: true }
+
+    SpinBox {
+        id: targetSpin
+        Kirigami.FormData.label: i18n("Objetivo diario (h):")
+        from: 0
+        to: 24
+        stepSize: 1
+    }
+
+    TextField {
+        id: jqlField
+        Kirigami.FormData.label: i18n("JQL del picker:")
+        Layout.fillWidth: true
+        placeholderText: "assignee = currentUser() AND statusCategory != Done"
+    }
+
+    SpinBox {
+        id: maxSpin
+        Kirigami.FormData.label: i18n("Máx. issues en el picker:")
+        from: 10
+        to: 200
+        stepSize: 10
+    }
+
+    CheckBox {
+        id: debugCheck
+        Kirigami.FormData.label: i18n("Logs:")
+        text: i18n("Loggear fetch/parse en plasmashell stdout")
+    }
+
+    Label {
+        Layout.fillWidth: true
+        Layout.preferredWidth: 400
+        wrapMode: Text.WordWrap
+        opacity: 0.65
+        text: i18n("Las credenciales de Jira (sitio, email, token) se editan en la pestaña «Jira». "
+                 + "Están compartidas con el plasmoide Categorized ToDo, así que si ya tenés ese "
+                 + "instalado y configurado, este plasmoide ya las ve.")
+    }
+}
