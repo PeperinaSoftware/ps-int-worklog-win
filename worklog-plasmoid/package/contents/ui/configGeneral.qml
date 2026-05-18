@@ -17,6 +17,7 @@ Kirigami.FormLayout {
     property alias  cfg_worklogDailyTargetHours:  targetSpin.value
     property alias  cfg_worklogIssueJql:          jqlField.text
     property alias  cfg_worklogIssueMax:          maxSpin.value
+    property alias  cfg_worklogShowIssueLabel:    showLabelCheck.checked
     property alias  cfg_worklogDebug:             debugCheck.checked
 
     ButtonGroup { id: viewGroup }
@@ -79,6 +80,12 @@ Kirigami.FormLayout {
         from: 10
         to: 200
         stepSize: 10
+    }
+
+    CheckBox {
+        id: showLabelCheck
+        Kirigami.FormData.label: i18n("Bloques:")
+        text: i18n("Mostrar el código de la issue (ej. CP-2796) en cada bloque")
     }
 
     CheckBox {

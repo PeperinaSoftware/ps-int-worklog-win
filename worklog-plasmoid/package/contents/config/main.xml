@@ -59,6 +59,10 @@
             <min>10</min>
             <max>200</max>
         </entry>
+        <entry name="worklogShowIssueLabel" type="Bool">
+            <label>Show the issue key on each worklog block</label>
+            <default>true</default>
+        </entry>
         <entry name="worklogDebug" type="Bool">
             <label>Log every Jira request to plasmashell stdout</label>
             <default>true</default>
