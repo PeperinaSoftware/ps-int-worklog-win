@@ -2,16 +2,19 @@
  * WorklogEntry.qml - one logged block on the calendar grid.
  *
  * Layout rules (driven by block height in slots):
- *   - 1 slot (≤30 min): single line, smaller font, "09:00  CP-2796".
+ *   - 1 slot (≤30 min): single line, smaller font:
+ *       09:00  CP-2796
+ *     The issue key is always shown; the summary is omitted because
+ *     there's no room.
  *   - 2+ slots (>30 min): two lines, default font:
  *       09:00 - 11:30 (2h 30m)
- *       CP-2796
+ *       CP-2796               ← always
+ *     or, if worklogShowIssueSummary is on:
+ *       09:00 - 11:30 (2h 30m)
+ *       CP-2796: <summary>    ← elided right
  *
  * Comments are never rendered on the block itself — clicking opens the
  * edit dialog where the full comment + summary are visible.
- *
- * The issue-key line is gated on plasmoid.configuration.worklogShowIssueLabel
- * (config General → Bloques). When off, blocks show only the time range.
  */
 
 import QtQuick 2.15
@@ -32,7 +35,7 @@ Rectangle {
     border.width: 1
 
     readonly property bool _isCompact: entry && entry.durationSec <= 30 * 60
-    readonly property bool _showLabel: plasmoid.configuration.worklogShowIssueLabel !== false
+    readonly property bool _showSummary: plasmoid.configuration.worklogShowIssueSummary === true
     readonly property int _baseSize:    PlasmaCore.Theme.smallestFont.pixelSize
     readonly property int _compactSize: Math.max(7, _baseSize - 1)
 
@@ -62,14 +65,9 @@ Rectangle {
             anchors.right: parent.right
             anchors.leftMargin: 2
             anchors.rightMargin: 2
-            text: {
-                if (!block.entry) return "";
-                var t = block._fmtTime(block.entry.started);
-                if (!block._showLabel) {
-                    return t + "  (" + block._fmtDuration(block.entry.durationSec) + ")";
-                }
-                return t + "  " + block.entry.issueKey;
-            }
+            text: block.entry
+                  ? (block._fmtTime(block.entry.started) + "  " + block.entry.issueKey)
+                  : ""
             color: "white"
             font.pixelSize: block._compactSize
             elide: Text.ElideRight
@@ -98,11 +96,18 @@ Rectangle {
 
         PlasmaComponents3.Label {
             Layout.fillWidth: true
-            visible: block._showLabel
-            text: block.entry ? block.entry.issueKey : ""
+            text: {
+                if (!block.entry) return "";
+                if (block._showSummary && block.entry.issueSummary &&
+                    block.entry.issueSummary.length > 0) {
+                    return block.entry.issueKey + ": " + block.entry.issueSummary;
+                }
+                return block.entry.issueKey;
+            }
             color: "white"
             font.pixelSize: block._baseSize
             elide: Text.ElideRight
+            wrapMode: Text.NoWrap
         }
 
         Item { Layout.fillHeight: true }
