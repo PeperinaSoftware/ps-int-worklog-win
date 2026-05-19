@@ -56,6 +56,20 @@ Item {
         _clearStatusTimer.restart();
     }
 
+    // Project selected from the footer ComboBox used by the
+    // "Jira → Clockify" sync button. Initialised from the config default;
+    // changes are written back so the choice persists across reloads.
+    property string syncProjectId: plasmoid.configuration.clockifyDefaultProjectId || ""
+
+    Connections {
+        target: plasmoid.configuration
+        function onClockifyDefaultProjectIdChanged() {
+            // Keep the in-memory value in sync if the user edits the
+            // config dialog while the popup is open.
+            full.syncProjectId = plasmoid.configuration.clockifyDefaultProjectId || "";
+        }
+    }
+
     function _sundayOf(d) {
         var c = new Date(d);
         c.setHours(0, 0, 0, 0);
@@ -79,9 +93,9 @@ Item {
         full._setStatus(i18n("Copiando Jira → Clockify…"), false);
         // Don't auto-clear while the sync is in flight.
         _clearStatusTimer.stop();
-        var defaultProject = plasmoid.configuration.clockifyDefaultProjectId || "";
+        var projectForSync = full.syncProjectId || "";
         var defaultBillable = plasmoid.configuration.clockifyBillableDefault !== false;
-        clockifyStore.syncFromJira(jiraStore.worklogs, defaultProject, defaultBillable,
+        clockifyStore.syncFromJira(jiraStore.worklogs, projectForSync, defaultBillable,
             function(created, skipped, failed) {
                 full._setStatus(
                     i18n("Sync terminado: %1 creadas, %2 ya existían, %3 fallaron.",
@@ -255,6 +269,58 @@ Item {
                 }
                 opacity: 0.7
                 font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
+            }
+
+            // Combined-mode-only: project picker for the sync.
+            // Color swatch + ComboBox showing every Clockify project. The
+            // default selection is mirrored from plasmoid.configuration
+            // .clockifyDefaultProjectId via the Connections block above,
+            // and changes here persist back to that same kcfg key.
+            Rectangle {
+                visible: full._isCombined
+                Layout.preferredWidth: 12
+                Layout.preferredHeight: 12
+                radius: 2
+                color: {
+                    if (!clockifyStore) return "transparent";
+                    for (var i = 0; i < clockifyStore.projects.length; i++) {
+                        if (clockifyStore.projects[i].id === full.syncProjectId
+                            && clockifyStore.projects[i].color)
+                            return clockifyStore.projects[i].color;
+                    }
+                    return "transparent";
+                }
+                border.width: 1
+                border.color: Qt.rgba(1, 1, 1, 0.3)
+                Layout.alignment: Qt.AlignVCenter
+            }
+            QQC2.ComboBox {
+                id: syncProjectCombo
+                visible: full._isCombined
+                Layout.preferredWidth: 200
+                textRole: "name"
+                valueRole: "id"
+                model: {
+                    var head = [{ id: "", name: i18n("(sin proyecto)"), color: "" }];
+                    return (clockifyStore && clockifyStore.projects.length > 0)
+                           ? head.concat(clockifyStore.projects)
+                           : head;
+                }
+                currentIndex: {
+                    var arr = syncProjectCombo.model || [];
+                    for (var i = 0; i < arr.length; i++) {
+                        if (arr[i].id === full.syncProjectId) return i;
+                    }
+                    return 0;
+                }
+                onActivated: function(idx) {
+                    full.syncProjectId = syncProjectCombo.model[idx].id;
+                    // Persist so the choice survives the next popup open.
+                    plasmoid.configuration.clockifyDefaultProjectId = full.syncProjectId;
+                }
+                PlasmaComponents3.ToolTip.text: i18n("Proyecto destino del sync Jira → Clockify")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
             }
 
             // Combined-mode-only: copy Jira worklogs into Clockify entries.
