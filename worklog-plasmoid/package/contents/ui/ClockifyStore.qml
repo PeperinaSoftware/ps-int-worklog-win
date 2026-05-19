@@ -463,16 +463,23 @@ QtObject {
                 }
                 var t = toCreate[idx];
                 var url = "https://api.clockify.me/api/v1/workspaces/" + workspaceId + "/time-entries";
-                var body = {
+                var bodyObj = {
                     start: _toUtcIso(t.start),
                     end:   _toUtcIso(t.end),
                     description: t.desc,
                     billable: defaultBillable === true
                 };
-                if (defaultProjectId) body.projectId = defaultProjectId;
-                _send("POST", url, JSON.stringify(body), function(code, _b) {
-                    if (code >= 200 && code < 300) created++;
-                    else { failed++; _warn("Sync create exit=" + code + " (" + t.desc + ")"); }
+                if (defaultProjectId) bodyObj.projectId = defaultProjectId;
+                var bodyJson = JSON.stringify(bodyObj);
+                if (idx === 0) _log("Sync POST body sample: " + bodyJson);
+                _send("POST", url, bodyJson, function(code, respBody) {
+                    if (code >= 200 && code < 300) {
+                        created++;
+                    } else {
+                        failed++;
+                        var detail = _extractError(respBody);
+                        _warn("Sync create exit=" + code + " (" + t.desc + ") — " + detail);
+                    }
                     step(idx + 1);
                 });
             };
@@ -504,12 +511,19 @@ QtObject {
         catch (e) { _warn("xhr.send threw: " + e); callback(0, ""); }
     }
 
-    // Returns "2026-05-12T15:00:00Z" (UTC, with milliseconds stripped) —
-    // Clockify is strict about ISO 8601 and accepts trailing "Z".
+    // Returns "2026-05-12T15:00:00.000Z" — Clockify's docs and examples
+    // include the milliseconds; some endpoints reject the shortened form
+    // with HTTP 400.
     function _toUtcIso(d) {
         function p(n) { return n < 10 ? "0" + n : "" + n; }
+        function p3(n) {
+            if (n < 10)  return "00" + n;
+            if (n < 100) return "0"  + n;
+            return "" + n;
+        }
         return d.getUTCFullYear() + "-" + p(d.getUTCMonth() + 1) + "-" + p(d.getUTCDate()) +
-               "T" + p(d.getUTCHours()) + ":" + p(d.getUTCMinutes()) + ":" + p(d.getUTCSeconds()) + "Z";
+               "T" + p(d.getUTCHours()) + ":" + p(d.getUTCMinutes()) + ":" + p(d.getUTCSeconds()) +
+               "." + p3(d.getUTCMilliseconds()) + "Z";
     }
     function _startOfDay(d) {
         var c = new Date(d); c.setHours(0, 0, 0, 0); return c;
