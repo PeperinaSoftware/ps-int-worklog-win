@@ -32,6 +32,30 @@ Item {
     readonly property bool _showJira: source === "jira" || source === "jira-clockify"
     readonly property bool _showClockify: source === "clockify" || source === "jira-clockify"
 
+    // Transient status text driven by sync flows. The status label's text
+    // is a *binding* on these three values — never assigned imperatively
+    // (doing so would clobber the binding, which is what made the message
+    // stick previously).
+    property string _statusOverride: ""
+    property color  _statusOverrideColor: PlasmaCore.Theme.textColor
+    property bool   _statusOverrideHoldsError: false
+
+    Timer {
+        id: _clearStatusTimer
+        interval: 6000
+        onTriggered: {
+            full._statusOverride = "";
+            full._statusOverrideHoldsError = false;
+        }
+    }
+    function _setStatus(text, isError) {
+        _statusOverride = text;
+        _statusOverrideColor = isError ? PlasmaCore.Theme.negativeTextColor
+                                        : PlasmaCore.Theme.positiveTextColor;
+        _statusOverrideHoldsError = !!isError;
+        _clearStatusTimer.restart();
+    }
+
     function _sundayOf(d) {
         var c = new Date(d);
         c.setHours(0, 0, 0, 0);
@@ -52,17 +76,17 @@ Item {
 
     function syncJiraIntoClockify() {
         if (!jiraStore || !clockifyStore) return;
-        statusLabel.text = i18n("Copiando Jira → Clockify…");
-        statusLabel.color = PlasmaCore.Theme.textColor;
+        full._setStatus(i18n("Copiando Jira → Clockify…"), false);
+        // Don't auto-clear while the sync is in flight.
+        _clearStatusTimer.stop();
         var defaultProject = plasmoid.configuration.clockifyDefaultProjectId || "";
         var defaultBillable = plasmoid.configuration.clockifyBillableDefault !== false;
         clockifyStore.syncFromJira(jiraStore.worklogs, defaultProject, defaultBillable,
             function(created, skipped, failed) {
-                statusLabel.text = i18n("Sync terminado: %1 creadas, %2 ya existían, %3 fallaron.",
-                                         created, skipped, failed);
-                statusLabel.color = failed > 0
-                                    ? PlasmaCore.Theme.negativeTextColor
-                                    : PlasmaCore.Theme.positiveTextColor;
+                full._setStatus(
+                    i18n("Sync terminado: %1 creadas, %2 ya existían, %3 fallaron.",
+                         created, skipped, failed),
+                    failed > 0);
                 if (clockifyStore) clockifyStore.fetchWeek(full.currentWeekStart);
             });
     }
@@ -166,17 +190,14 @@ Item {
             }
         }
 
-        // Status / errors.
+        // Status / errors. Pure binding — never assigned imperatively;
+        // transient messages go through _setStatus() which writes
+        // _statusOverride + restarts the auto-clear timer.
         PlasmaComponents3.Label {
             id: statusLabel
             Layout.fillWidth: true
-            visible: text.length > 0 ||
-                     (jiraStore && jiraStore.loading) ||
-                     (clockifyStore && clockifyStore.loading) ||
-                     (jiraStore && jiraStore.lastError.length > 0) ||
-                     (clockifyStore && clockifyStore.lastError.length > 0)
             text: {
-                if (text.length > 0) return text;
+                if (full._statusOverride.length > 0) return full._statusOverride;
                 if (jiraStore && jiraStore.loading) return i18n("Jira: cargando…");
                 if (clockifyStore && clockifyStore.loading) return i18n("Clockify: cargando…");
                 if (jiraStore && jiraStore.lastError.length > 0)
@@ -185,10 +206,15 @@ Item {
                     return i18n("Clockify: %1", clockifyStore.lastError);
                 return "";
             }
-            color: ((jiraStore && jiraStore.lastError.length > 0) ||
-                    (clockifyStore && clockifyStore.lastError.length > 0))
-                   ? PlasmaCore.Theme.negativeTextColor
-                   : PlasmaCore.Theme.textColor
+            visible: text.length > 0
+            color: {
+                if (full._statusOverride.length > 0) return full._statusOverrideColor;
+                if ((jiraStore && jiraStore.lastError.length > 0) ||
+                    (clockifyStore && clockifyStore.lastError.length > 0)) {
+                    return PlasmaCore.Theme.negativeTextColor;
+                }
+                return PlasmaCore.Theme.textColor;
+            }
             opacity: 0.8
             font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
         }

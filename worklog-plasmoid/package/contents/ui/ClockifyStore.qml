@@ -29,7 +29,8 @@ QtObject {
 
     property var plasmoidApi: null
 
-    property string apiKey: ""
+    // Resolved & cached in plasmoid.configuration so reloads can skip the
+    // /user lookup. Filled by ensureContext().
     property string workspaceId: ""
     property string userId: ""
 
@@ -37,7 +38,15 @@ QtObject {
     property var tags: []       // [{id, name}]
     property var entries: []    // [{id, started, durationSec, description, projectId, projectName, projectColor, tagIds, tagNames, billable}]
 
-    property bool ready: false
+    // Always reads fresh from KCfg so the user changing the key in the
+    // config dialog takes effect on the next request. Don't cache.
+    function _apiKey() {
+        if (!plasmoidApi) return "";
+        return (plasmoidApi.configuration.clockifyApiKey || "").trim();
+    }
+
+    readonly property bool ready: _apiKey().length > 0
+
     property bool loading: false
     property string lastError: ""
     property real lastFetchedAt: 0
@@ -63,13 +72,11 @@ QtObject {
             return;
         }
         var pc = plasmoidApi.configuration;
-        apiKey      = (pc.clockifyApiKey      || "").trim();
         workspaceId = (pc.clockifyWorkspaceId || "").trim();
         userId      = (pc.clockifyUserId      || "").trim();
         _log("init: workspaceId=" + (workspaceId || "(empty)") +
              " userId=" + (userId || "(empty)") +
-             " hasKey=" + !!apiKey);
-        ready = !!apiKey;
+             " hasKey=" + ready);
     }
 
     function totalCount() { return entries.length; }
@@ -83,12 +90,19 @@ QtObject {
     // Resolve userId + workspaceId via /user, then load projects + tags,
     // then call the supplied callback (with ok=true on success).
     function ensureContext(callback) {
-        if (!apiKey) {
-            lastError = qsTr("Falta la API key de Clockify.");
-            _warn("Falta API key.");
+        var key = _apiKey();
+        if (!key) {
+            lastError = qsTr("Falta la API key de Clockify. Configurala en la pestaña Clockify.");
+            _warn("Falta API key (plasmoid.configuration.clockifyApiKey está vacío).");
             _bump();
             callback(false);
             return;
+        }
+        // Refresh cached ids from config in case another instance / dialog
+        // updated them.
+        if (plasmoidApi) {
+            workspaceId = (plasmoidApi.configuration.clockifyWorkspaceId || "").trim();
+            userId      = (plasmoidApi.configuration.clockifyUserId      || "").trim();
         }
         if (workspaceId && userId && projects.length > 0) {
             callback(true);
@@ -439,9 +453,15 @@ QtObject {
     // ------------------------------------------------------------------
 
     function _send(method, url, body, callback) {
+        var key = _apiKey();
+        if (!key) {
+            _warn("_send abortado: no hay API key todavía.");
+            callback(0, "");
+            return;
+        }
         var xhr = new XMLHttpRequest();
         xhr.open(method, url, true);
-        xhr.setRequestHeader("X-Api-Key", apiKey);
+        xhr.setRequestHeader("X-Api-Key", key);
         xhr.setRequestHeader("Accept", "application/json");
         if (body) xhr.setRequestHeader("Content-Type", "application/json");
         xhr.onreadystatechange = function() {
