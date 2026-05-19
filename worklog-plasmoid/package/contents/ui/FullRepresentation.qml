@@ -1,12 +1,13 @@
 /*
  * FullRepresentation.qml - popup contents.
  *
- * Layout:
- *   - Header: week nav (prev / today / next), week label, view mode toggle
- *             (9h ↔ 24h), sync button, debug info button, configure button.
- *   - Body  : WorklogCalendar grid.
- *   - Hosts the WorklogEditDialog modal that opens from drag-to-create or
- *     clicking an existing entry.
+ * Header   : title, week nav (← Today →), week label, view-mode toggle
+ *            (9h ↔ 24h), sync ↻, debug ⓘ, pin 📌.
+ * Body     : WorklogCalendar wired to both stores; emits separate
+ *            create/edit signals for Jira and Clockify entries.
+ * Footer   : week-total + (in jira-clockify mode) "Sync Jira → Clockify"
+ *            button, mode hamburger menu (Jira / Jira-Clockify / Clockify),
+ *            Configure… button.
  */
 
 import QtQuick 2.15
@@ -18,30 +19,52 @@ import org.kde.plasma.components 3.0 as PlasmaComponents3
 
 Item {
     id: full
-    property var store
 
-    // The week shown — Sunday 00:00 of the visible 7 days.
+    property var jiraStore
+    property var clockifyStore
+
     property date currentWeekStart: _sundayOf(new Date())
-    readonly property int _v: store ? store.version : 0
+    readonly property int _vJira: jiraStore ? jiraStore.version : 0
+    readonly property int _vClockify: clockifyStore ? clockifyStore.version : 0
+
+    readonly property string source: plasmoid.configuration.worklogSource || "jira"
+    readonly property bool _isCombined: source === "jira-clockify"
+    readonly property bool _showJira: source === "jira" || source === "jira-clockify"
+    readonly property bool _showClockify: source === "clockify" || source === "jira-clockify"
 
     function _sundayOf(d) {
         var c = new Date(d);
         c.setHours(0, 0, 0, 0);
-        c.setDate(c.getDate() - c.getDay());  // 0 = Sunday
+        c.setDate(c.getDate() - c.getDay());
         return c;
     }
-
     function _formatWeekLabel(start) {
         var end = new Date(start.getTime() + 6 * 24 * 60 * 60 * 1000);
         var months = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-        var s = start.getDate() + " " + months[start.getMonth()];
-        var e = end.getDate()   + " " + months[end.getMonth()] + " " + end.getFullYear();
-        return s + " — " + e;
+        return start.getDate() + " " + months[start.getMonth()] + " — " +
+               end.getDate()   + " " + months[end.getMonth()] + " " + end.getFullYear();
     }
 
     function syncNow() {
-        if (!store) return;
-        store.fetchWeek(currentWeekStart);
+        if (_showJira     && jiraStore)     jiraStore.fetchWeek(currentWeekStart);
+        if (_showClockify && clockifyStore) clockifyStore.fetchWeek(currentWeekStart);
+    }
+
+    function syncJiraIntoClockify() {
+        if (!jiraStore || !clockifyStore) return;
+        statusLabel.text = i18n("Copiando Jira → Clockify…");
+        statusLabel.color = PlasmaCore.Theme.textColor;
+        var defaultProject = plasmoid.configuration.clockifyDefaultProjectId || "";
+        var defaultBillable = plasmoid.configuration.clockifyBillableDefault !== false;
+        clockifyStore.syncFromJira(jiraStore.worklogs, defaultProject, defaultBillable,
+            function(created, skipped, failed) {
+                statusLabel.text = i18n("Sync terminado: %1 creadas, %2 ya existían, %3 fallaron.",
+                                         created, skipped, failed);
+                statusLabel.color = failed > 0
+                                    ? PlasmaCore.Theme.negativeTextColor
+                                    : PlasmaCore.Theme.positiveTextColor;
+                if (clockifyStore) clockifyStore.fetchWeek(full.currentWeekStart);
+            });
     }
 
     ColumnLayout {
@@ -60,7 +83,11 @@ Item {
                 Layout.preferredHeight: 18
             }
             PlasmaComponents3.Label {
-                text: i18n("Jira Worklog")
+                text: {
+                    if (full.source === "clockify") return i18n("Clockify");
+                    if (full.source === "jira-clockify") return i18n("Jira / Clockify");
+                    return i18n("Jira Worklog");
+                }
                 font.bold: true
             }
 
@@ -72,9 +99,6 @@ Item {
                     full.currentWeekStart = d;
                     full.syncNow();
                 }
-                PlasmaComponents3.ToolTip.text: i18n("Semana anterior")
-                PlasmaComponents3.ToolTip.visible: hovered
-                PlasmaComponents3.ToolTip.delay: 500
             }
             PlasmaComponents3.Button {
                 text: i18n("Hoy")
@@ -91,9 +115,6 @@ Item {
                     full.currentWeekStart = d;
                     full.syncNow();
                 }
-                PlasmaComponents3.ToolTip.text: i18n("Semana siguiente")
-                PlasmaComponents3.ToolTip.visible: hovered
-                PlasmaComponents3.ToolTip.delay: 500
             }
 
             PlasmaComponents3.Label {
@@ -103,11 +124,8 @@ Item {
                 font.bold: true
             }
 
-            // View-mode toggle (9h / 24h)
             PlasmaComponents3.Button {
-                text: plasmoid.configuration.worklogViewMode === "9h"
-                      ? i18n("Modo 9h")
-                      : i18n("Modo 24h")
+                text: plasmoid.configuration.worklogViewMode === "9h" ? i18n("Modo 9h") : i18n("Modo 24h")
                 onClicked: {
                     plasmoid.configuration.worklogViewMode =
                         plasmoid.configuration.worklogViewMode === "9h" ? "24h" : "9h";
@@ -116,34 +134,59 @@ Item {
                 PlasmaComponents3.ToolTip.visible: hovered
                 PlasmaComponents3.ToolTip.delay: 500
             }
-
             PlasmaComponents3.ToolButton {
                 icon.name: "view-refresh"
-                enabled: store && !store.loading
+                enabled: (!jiraStore || !jiraStore.loading) && (!clockifyStore || !clockifyStore.loading)
                 onClicked: full.syncNow()
-                PlasmaComponents3.ToolTip.text: i18n("Sincronizar con Jira")
+                PlasmaComponents3.ToolTip.text: i18n("Sincronizar")
                 PlasmaComponents3.ToolTip.visible: hovered
                 PlasmaComponents3.ToolTip.delay: 500
             }
             PlasmaComponents3.ToolButton {
                 icon.name: "dialog-information"
                 onClicked: debugOverlay.visible = true
-                PlasmaComponents3.ToolTip.text: i18n("Ver diagnóstico de la última consulta")
+                PlasmaComponents3.ToolTip.text: i18n("Ver diagnóstico")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
+            }
+            // Pin button — keeps the popup open until toggled off.
+            PlasmaComponents3.ToolButton {
+                id: pinBtn
+                icon.name: plasmoid.configuration.worklogPinned ? "window-pin" : "window-unpin"
+                checkable: true
+                checked: plasmoid.configuration.worklogPinned === true
+                onClicked: {
+                    plasmoid.configuration.worklogPinned = !plasmoid.configuration.worklogPinned;
+                }
+                PlasmaComponents3.ToolTip.text: plasmoid.configuration.worklogPinned
+                                                ? i18n("Despinear (cerrar al perder foco)")
+                                                : i18n("Pinear (mantener abierto)")
                 PlasmaComponents3.ToolTip.visible: hovered
                 PlasmaComponents3.ToolTip.delay: 500
             }
         }
 
-        // Status line
+        // Status / errors.
         PlasmaComponents3.Label {
+            id: statusLabel
             Layout.fillWidth: true
-            visible: store && (store.loading || store.lastError.length > 0)
+            visible: text.length > 0 ||
+                     (jiraStore && jiraStore.loading) ||
+                     (clockifyStore && clockifyStore.loading) ||
+                     (jiraStore && jiraStore.lastError.length > 0) ||
+                     (clockifyStore && clockifyStore.lastError.length > 0)
             text: {
-                if (!store) return "";
-                if (store.loading) return i18n("Cargando…");
-                return store.lastError;
+                if (text.length > 0) return text;
+                if (jiraStore && jiraStore.loading) return i18n("Jira: cargando…");
+                if (clockifyStore && clockifyStore.loading) return i18n("Clockify: cargando…");
+                if (jiraStore && jiraStore.lastError.length > 0)
+                    return i18n("Jira: %1", jiraStore.lastError);
+                if (clockifyStore && clockifyStore.lastError.length > 0)
+                    return i18n("Clockify: %1", clockifyStore.lastError);
+                return "";
             }
-            color: store && store.lastError.length > 0
+            color: ((jiraStore && jiraStore.lastError.length > 0) ||
+                    (clockifyStore && clockifyStore.lastError.length > 0))
                    ? PlasmaCore.Theme.negativeTextColor
                    : PlasmaCore.Theme.textColor
             opacity: 0.8
@@ -155,10 +198,14 @@ Item {
             id: cal
             Layout.fillWidth: true
             Layout.fillHeight: true
-            store: full.store
+            jiraStore: full.jiraStore
+            clockifyStore: full.clockifyStore
             weekStart: full.currentWeekStart
-            onCreateRequested: editDialog.openCreate(dayMs, startMs, endMs)
-            onEditRequested: editDialog.openEdit(entry)
+            source: full.source
+            onCreateJiraRequested:     jiraEditDialog.openCreate(dayMs, startMs, endMs)
+            onCreateClockifyRequested: clockifyEditDialog.openCreate(startMs, endMs)
+            onEditJiraRequested:       jiraEditDialog.openEdit(entry)
+            onEditClockifyRequested:   clockifyEditDialog.openEdit(entry)
         }
 
         // -------- Footer --------
@@ -167,18 +214,70 @@ Item {
             PlasmaComponents3.Label {
                 Layout.fillWidth: true
                 text: {
-                    if (!store) return "";
-                    var total = 0;
-                    for (var i = 0; i < store.worklogs.length; i++) {
-                        total += store.worklogs[i].durationSec;
+                    var parts = [];
+                    if (full._showJira && jiraStore) {
+                        var jt = 0;
+                        for (var i = 0; i < jiraStore.worklogs.length; i++) jt += jiraStore.worklogs[i].durationSec;
+                        parts.push(i18n("Jira: %1h %2m", Math.floor(jt/3600), Math.floor((jt%3600)/60)));
                     }
-                    var h = Math.floor(total / 3600);
-                    var m = Math.floor((total % 3600) / 60);
-                    return i18n("Total semana: %1h %2m", h, m);
+                    if (full._showClockify && clockifyStore) {
+                        var ct = 0;
+                        for (var j = 0; j < clockifyStore.entries.length; j++) ct += clockifyStore.entries[j].durationSec;
+                        parts.push(i18n("Clockify: %1h %2m", Math.floor(ct/3600), Math.floor((ct%3600)/60)));
+                    }
+                    return parts.join("  ·  ");
                 }
                 opacity: 0.7
                 font.pixelSize: PlasmaCore.Theme.smallestFont.pixelSize
             }
+
+            // Combined-mode-only: copy Jira worklogs into Clockify entries.
+            PlasmaComponents3.Button {
+                visible: full._isCombined
+                text: i18n("Jira → Clockify")
+                icon.name: "edit-copy"
+                onClicked: full.syncJiraIntoClockify()
+                PlasmaComponents3.ToolTip.text: i18n("Crea una entrada Clockify por cada worklog de Jira " +
+                                                     "que aún no tenga su réplica (descripción = CP-XXX: título).")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
+            }
+
+            // Mode hamburger.
+            PlasmaComponents3.ToolButton {
+                id: modeBtn
+                icon.name: "application-menu"
+                onClicked: modeMenu.open()
+                PlasmaComponents3.ToolTip.text: i18n("Cambiar fuente de worklog")
+                PlasmaComponents3.ToolTip.visible: hovered
+                PlasmaComponents3.ToolTip.delay: 500
+                QQC2.Menu {
+                    id: modeMenu
+                    y: -implicitHeight
+                    QQC2.MenuItem {
+                        text: i18n("Jira")
+                        icon.name: "go-bottom"
+                        checkable: true
+                        checked: full.source === "jira"
+                        onTriggered: { plasmoid.configuration.worklogSource = "jira"; full.syncNow(); }
+                    }
+                    QQC2.MenuItem {
+                        text: i18n("Jira / Clockify")
+                        icon.name: "view-split-left-right"
+                        checkable: true
+                        checked: full.source === "jira-clockify"
+                        onTriggered: { plasmoid.configuration.worklogSource = "jira-clockify"; full.syncNow(); }
+                    }
+                    QQC2.MenuItem {
+                        text: i18n("Clockify")
+                        icon.name: "chronometer"
+                        checkable: true
+                        checked: full.source === "clockify"
+                        onTriggered: { plasmoid.configuration.worklogSource = "clockify"; full.syncNow(); }
+                    }
+                }
+            }
+
             PlasmaComponents3.ToolButton {
                 icon.name: "configure"
                 text: i18n("Configurar…")
@@ -187,10 +286,17 @@ Item {
         }
     }
 
-    // -------- Create/edit modal --------
+    // -------- Modals --------
     WorklogEditDialog {
-        id: editDialog
-        store: full.store
+        id: jiraEditDialog
+        store: full.jiraStore
+        anchors.fill: parent
+        onSaved: full.syncNow()
+        onDeleted: full.syncNow()
+    }
+    ClockifyEditDialog {
+        id: clockifyEditDialog
+        store: full.clockifyStore
         anchors.fill: parent
         onSaved: full.syncNow()
         onDeleted: full.syncNow()
@@ -230,20 +336,16 @@ Item {
                     Layout.fillWidth: true
                     PlasmaComponents3.Label {
                         Layout.fillWidth: true
-                        text: i18n("Diagnóstico — última consulta")
+                        text: i18n("Diagnóstico (Jira + Clockify)")
                         font.bold: true
-                    }
-                    PlasmaComponents3.ToolButton {
-                        icon.name: "edit-copy"
-                        text: i18n("Copiar")
-                        enabled: store && store.hasDebugLog
-                        onClicked: { logArea.selectAll(); logArea.copy(); logArea.deselect(); }
                     }
                     PlasmaComponents3.ToolButton {
                         icon.name: "edit-clear-all"
                         text: i18n("Limpiar")
-                        enabled: store && store.hasDebugLog
-                        onClicked: store.clearDebugLog()
+                        onClicked: {
+                            if (jiraStore && jiraStore.hasDebugLog) jiraStore.clearDebugLog();
+                            if (clockifyStore && clockifyStore.hasDebugLog) clockifyStore.clearDebugLog();
+                        }
                     }
                     PlasmaComponents3.ToolButton {
                         icon.name: "window-close"
@@ -262,9 +364,14 @@ Item {
                         wrapMode: TextEdit.WrapAnywhere
                         font.family: "monospace"
                         font.pixelSize: 11
-                        text: (store && store.hasDebugLog)
-                              ? ((full._v, store.lastDebugLog))
-                              : i18n("Sin datos. Pulsá ↻ para sincronizar primero.")
+                        text: {
+                            var j = (jiraStore && jiraStore.hasDebugLog) ? jiraStore.lastDebugLog : "";
+                            var c = (clockifyStore && clockifyStore.hasDebugLog) ? clockifyStore.lastDebugLog : "";
+                            var _ = (full._vJira, full._vClockify);
+                            if (!j && !c) return i18n("Sin datos. Pulsá ↻ para sincronizar.");
+                            return "---- JIRA ----\n" + (j || "(vacío)") +
+                                   "\n\n---- CLOCKIFY ----\n" + (c || "(vacío)");
+                        }
                     }
                 }
             }
@@ -272,7 +379,7 @@ Item {
     }
 
     Component.onCompleted: {
-        // First sync on open if we never fetched.
-        if (store && store.lastFetchedAt === 0) syncNow();
+        if (jiraStore && jiraStore.lastFetchedAt === 0 && _showJira) jiraStore.fetchWeek(currentWeekStart);
+        if (clockifyStore && clockifyStore.lastFetchedAt === 0 && _showClockify) clockifyStore.fetchWeek(currentWeekStart);
     }
 }

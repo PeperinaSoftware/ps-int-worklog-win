@@ -1,20 +1,24 @@
 /*
  * WorklogEntry.qml - one logged block on the calendar grid.
  *
- * Layout rules (driven by block height in slots):
- *   - 1 slot (≤30 min): single line, smaller font:
- *       09:00  CP-2796
- *     The issue key is always shown; the summary is omitted because
- *     there's no room.
- *   - 2+ slots (>30 min): two lines, default font:
- *       09:00 - 11:30 (2h 30m)
- *       CP-2796               ← always
- *     or, if worklogShowIssueSummary is on:
- *       09:00 - 11:30 (2h 30m)
- *       CP-2796: <summary>    ← elided right
+ * Used for both Jira and Clockify entries; the `kind` property switches
+ * the color and the text rendered:
  *
- * Comments are never rendered on the block itself — clicking opens the
- * edit dialog where the full comment + summary are visible.
+ *   kind = "jira":
+ *     ≤30 min: single line "09:00  CP-2796"
+ *     >30 min: two lines (time range / issue key [+ summary if toggled])
+ *     color  : Jira purple
+ *
+ *   kind = "clockify":
+ *     ≤30 min: single line "09:00  <project | description>"
+ *     >30 min: two lines (time range / description, elided right)
+ *     color  : light green by default; if the project has a color and
+ *              the parent set `useProjectColor: true`, the project color
+ *              tints the block.
+ *
+ * In the combined "jira-clockify" mode the parent passes a half-width
+ * geometry so the two stacks sit side by side; the inner layout
+ * automatically uses smaller fonts to fit.
  */
 
 import QtQuick 2.15
@@ -26,26 +30,47 @@ import org.kde.plasma.components 3.0 as PlasmaComponents3
 Rectangle {
     id: block
     property var entry
+    property string kind: "jira"   // "jira" | "clockify"
+    property bool compact: false   // true in combined mode (force smaller font)
+    property bool useProjectColor: false
 
     signal clicked()
 
     radius: 3
-    color: Qt.rgba(155/255, 145/255, 230/255, 0.55)
-    border.color: Qt.rgba(120/255, 110/255, 200/255, 0.95)
     border.width: 1
+    color: block._fillColor()
+    border.color: block._borderColor()
 
-    readonly property bool _isCompact: entry && entry.durationSec <= 30 * 60
+    readonly property bool _isShort: entry && entry.durationSec <= 30 * 60
     readonly property bool _showSummary: plasmoid.configuration.worklogShowIssueSummary === true
     readonly property int _baseSize:    PlasmaCore.Theme.smallestFont.pixelSize
-    readonly property int _compactSize: Math.max(7, _baseSize - 1)
+    readonly property int _smallSize:   Math.max(7, _baseSize - 1)
+    readonly property int _useSize:     (compact || _isShort) ? _smallSize : _baseSize
+
+    function _fillColor() {
+        if (kind === "jira") {
+            return Qt.rgba(155/255, 145/255, 230/255, 0.55);       // muted purple
+        }
+        // Clockify: optional project tint, otherwise light green.
+        if (useProjectColor && entry && entry.projectColor && entry.projectColor.length > 0) {
+            return Qt.tint(Qt.rgba(0, 0, 0, 0.0), entry.projectColor);
+        }
+        return Qt.rgba(120/255, 215/255, 145/255, 0.55);            // light green
+    }
+    function _borderColor() {
+        if (kind === "jira") return Qt.rgba(120/255, 110/255, 200/255, 0.95);
+        if (useProjectColor && entry && entry.projectColor) {
+            return Qt.darker(entry.projectColor, 1.3);
+        }
+        return Qt.rgba(70/255, 170/255, 100/255, 0.95);
+    }
 
     function _fmtTime(ms) {
         var d = new Date(ms);
-        var h = d.getHours();
-        var m = d.getMinutes();
-        return (h < 10 ? "0" : "") + h + ":" + (m < 10 ? "0" : "") + m;
+        function p(n) { return n < 10 ? "0" + n : "" + n; }
+        return p(d.getHours()) + ":" + p(d.getMinutes());
     }
-    function _fmtDuration(sec) {
+    function _fmtDur(sec) {
         var h = Math.floor(sec / 3600);
         var m = Math.floor((sec % 3600) / 60);
         if (h > 0 && m > 0) return h + "h " + m + "m";
@@ -53,11 +78,53 @@ Rectangle {
         return m + "m";
     }
 
-    // -------- Compact: single line for 30-min blocks --------
+    function _jiraTopText() {
+        if (!entry) return "";
+        return _fmtTime(entry.started) + " - " +
+               _fmtTime(entry.started + entry.durationSec * 1000) +
+               "  (" + _fmtDur(entry.durationSec) + ")";
+    }
+    function _jiraBottomText() {
+        if (!entry) return "";
+        if (_showSummary && entry.issueSummary && entry.issueSummary.length > 0) {
+            return entry.issueKey + ": " + entry.issueSummary;
+        }
+        return entry.issueKey;
+    }
+    function _jiraCompactText() {
+        if (!entry) return "";
+        return _fmtTime(entry.started) + "  " + entry.issueKey;
+    }
+
+    function _clockifyTopText() {
+        if (!entry) return "";
+        return _fmtTime(entry.started) + " - " +
+               _fmtTime(entry.started + entry.durationSec * 1000) +
+               "  (" + _fmtDur(entry.durationSec) + ")";
+    }
+    function _clockifyBottomText() {
+        if (!entry) return "";
+        var desc = (entry.description && entry.description.length > 0)
+                   ? entry.description
+                   : i18n("(sin descripción)");
+        if (entry.projectName && entry.projectName.length > 0) {
+            return "[" + entry.projectName + "] " + desc;
+        }
+        return desc;
+    }
+    function _clockifyCompactText() {
+        if (!entry) return "";
+        var label = (entry.description && entry.description.length > 0)
+                    ? entry.description
+                    : (entry.projectName || i18n("(sin descripción)"));
+        return _fmtTime(entry.started) + "  " + label;
+    }
+
+    // -------- Single-line layout (≤30 min OR combined mode forces it) --
     Item {
         anchors.fill: parent
         anchors.margins: 2
-        visible: block._isCompact
+        visible: block._isShort
 
         PlasmaComponents3.Label {
             anchors.verticalCenter: parent.verticalCenter
@@ -65,51 +132,36 @@ Rectangle {
             anchors.right: parent.right
             anchors.leftMargin: 2
             anchors.rightMargin: 2
-            text: block.entry
-                  ? (block._fmtTime(block.entry.started) + "  " + block.entry.issueKey)
-                  : ""
+            text: block.kind === "jira" ? block._jiraCompactText() : block._clockifyCompactText()
             color: "white"
-            font.pixelSize: block._compactSize
+            font.pixelSize: block._smallSize
             elide: Text.ElideRight
             verticalAlignment: Text.AlignVCenter
         }
     }
 
-    // -------- Normal: two lines for >30-min blocks --------
+    // -------- Two-line layout (>30 min) --------
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: 3
         spacing: 0
-        visible: !block._isCompact
+        visible: !block._isShort
 
         PlasmaComponents3.Label {
             Layout.fillWidth: true
-            text: block.entry
-                  ? (block._fmtTime(block.entry.started) + " - " +
-                     block._fmtTime(block.entry.started + block.entry.durationSec * 1000) +
-                     "  (" + block._fmtDuration(block.entry.durationSec) + ")")
-                  : ""
+            text: block.kind === "jira" ? block._jiraTopText() : block._clockifyTopText()
             color: "white"
-            font.pixelSize: block._baseSize
+            font.pixelSize: block._useSize
             elide: Text.ElideRight
         }
-
         PlasmaComponents3.Label {
             Layout.fillWidth: true
-            text: {
-                if (!block.entry) return "";
-                if (block._showSummary && block.entry.issueSummary &&
-                    block.entry.issueSummary.length > 0) {
-                    return block.entry.issueKey + ": " + block.entry.issueSummary;
-                }
-                return block.entry.issueKey;
-            }
+            text: block.kind === "jira" ? block._jiraBottomText() : block._clockifyBottomText()
             color: "white"
-            font.pixelSize: block._baseSize
+            font.pixelSize: block._useSize
             elide: Text.ElideRight
             wrapMode: Text.NoWrap
         }
-
         Item { Layout.fillHeight: true }
     }
 

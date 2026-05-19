@@ -1,8 +1,8 @@
 [Desktop Entry]
-Name=Jira Worklog Calendar
-Name[es]=Calendario de horas Jira
-Comment=Weekly calendar of Jira worklogs with drag-to-log support
-Comment[es]=Calendario semanal de horas registradas en Jira con drag para crear
+Name=Jira / Clockify Worklog Calendar
+Name[es]=Calendario de horas Jira / Clockify
+Comment=Weekly calendar combining Jira and Clockify worklogs with drag-to-log
+Comment[es]=Calendario semanal con worklogs de Jira y Clockify, drag para crear
 Icon=view-calendar-week
 Type=Service
 ServiceTypes=Plasma/Applet
@@ -16,7 +16,7 @@ X-Plasma-NotificationArea=false
 X-KDE-PluginInfo-Author=Claude (Anthropic) for LSPaninka
 X-KDE-PluginInfo-Email=
 X-KDE-PluginInfo-Name=org.kde.plasma.jiraworklog
-X-KDE-PluginInfo-Version=0.1.2
+X-KDE-PluginInfo-Version=0.2.0
 X-KDE-PluginInfo-Website=https://github.com/lspaninka/kde-todo-1
 X-KDE-PluginInfo-Category=Utilities
 X-KDE-PluginInfo-License=MIT

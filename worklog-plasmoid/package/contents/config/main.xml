@@ -63,8 +63,45 @@
             <label>Append the issue summary (title) after the key on each worklog block. The key is always shown.</label>
             <default>false</default>
         </entry>
+        <entry name="worklogSource" type="String">
+            <label>Which calendar data source to render: "jira", "clockify" or "jira-clockify" (split).</label>
+            <default>jira</default>
+        </entry>
+        <entry name="worklogPinned" type="Bool">
+            <label>If true the popup stays open after focus loss (toggled by the pin button).</label>
+            <default>false</default>
+        </entry>
         <entry name="worklogDebug" type="Bool">
             <label>Log every Jira request to plasmashell stdout</label>
+            <default>true</default>
+        </entry>
+
+        <!-- Clockify integration. Auth: X-Api-Key header (generated under
+             your Clockify account → Profile settings → API). The workspace
+             and user ids are resolved automatically on first connection
+             and cached here so subsequent fetches skip the lookup. -->
+        <entry name="clockifyApiKey" type="String">
+            <label>Clockify API key (Profile → Settings → API)</label>
+            <default></default>
+        </entry>
+        <entry name="clockifyWorkspaceId" type="String">
+            <label>Resolved workspace id (auto-filled after the first sync). Leave empty to use the user's default workspace.</label>
+            <default></default>
+        </entry>
+        <entry name="clockifyUserId" type="String">
+            <label>Resolved Clockify user id (auto-filled).</label>
+            <default></default>
+        </entry>
+        <entry name="clockifyDefaultProjectId" type="String">
+            <label>Optional project id to preselect in the new-entry modal and used by the Jira→Clockify sync.</label>
+            <default></default>
+        </entry>
+        <entry name="clockifyBillableDefault" type="Bool">
+            <label>Default value of the "billable" toggle when creating a new Clockify entry.</label>
+            <default>true</default>
+        </entry>
+        <entry name="clockifyDebug" type="Bool">
+            <label>Log every Clockify request to plasmashell stdout.</label>
             <default>true</default>
         </entry>
     </group>

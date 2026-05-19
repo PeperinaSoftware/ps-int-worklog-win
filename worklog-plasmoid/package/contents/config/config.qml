@@ -12,4 +12,9 @@ ConfigModel {
         icon: "go-bottom"
         source: "configJira.qml"
     }
+    ConfigCategory {
+        name: i18n("Clockify")
+        icon: "chronometer"
+        source: "configClockify.qml"
+    }
 }

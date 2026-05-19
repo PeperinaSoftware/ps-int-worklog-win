@@ -1,6 +1,5 @@
 /*
- * CompactRepresentation.qml - panel view. Just the calendar icon, per the
- * spec; clicking opens the popup.
+ * CompactRepresentation.qml - panel view. Just the calendar icon.
  */
 
 import QtQuick 2.15
@@ -10,7 +9,6 @@ import org.kde.plasma.core 2.0 as PlasmaCore
 
 Item {
     id: compact
-    property var store
 
     Layout.minimumWidth: PlasmaCore.Units.iconSizes.small
     Layout.minimumHeight: PlasmaCore.Units.iconSizes.small
