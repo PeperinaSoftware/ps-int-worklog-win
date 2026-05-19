@@ -45,6 +45,14 @@ QtObject {
         return (plasmoidApi.configuration.clockifyApiKey || "").trim();
     }
 
+    // Clockify object ids are 24-character lowercase hex strings (Mongo
+    // ObjectId). Anything else (e.g. a workspace *name* like "PEPERINA")
+    // would cause /workspaces/{wid}/* to 403, so we treat it as empty and
+    // let `/user`'s defaultWorkspace fill it in.
+    function _isValidObjectId(s) {
+        return typeof s === "string" && /^[0-9a-fA-F]{24}$/.test(s);
+    }
+
     readonly property bool ready: _apiKey().length > 0
 
     property bool loading: false
@@ -72,8 +80,14 @@ QtObject {
             return;
         }
         var pc = plasmoidApi.configuration;
-        workspaceId = (pc.clockifyWorkspaceId || "").trim();
-        userId      = (pc.clockifyUserId      || "").trim();
+        var rawWid = (pc.clockifyWorkspaceId || "").trim();
+        var rawUid = (pc.clockifyUserId      || "").trim();
+        workspaceId = _isValidObjectId(rawWid) ? rawWid : "";
+        userId      = _isValidObjectId(rawUid) ? rawUid : "";
+        if (rawWid && !workspaceId) {
+            _warn("Workspace ID guardado ('" + rawWid + "') no es un Object ID válido " +
+                  "(24 hex chars); voy a auto-resolverlo desde /user.");
+        }
         _log("init: workspaceId=" + (workspaceId || "(empty)") +
              " userId=" + (userId || "(empty)") +
              " hasKey=" + ready);
@@ -98,11 +112,18 @@ QtObject {
             callback(false);
             return;
         }
-        // Refresh cached ids from config in case another instance / dialog
-        // updated them.
+        // Refresh cached ids from config — but treat anything that isn't a
+        // 24-hex Object ID as empty (a wrong value like the workspace
+        // *name* would 403 on /workspaces/{wid}/* otherwise).
         if (plasmoidApi) {
-            workspaceId = (plasmoidApi.configuration.clockifyWorkspaceId || "").trim();
-            userId      = (plasmoidApi.configuration.clockifyUserId      || "").trim();
+            var rawWid = (plasmoidApi.configuration.clockifyWorkspaceId || "").trim();
+            var rawUid = (plasmoidApi.configuration.clockifyUserId      || "").trim();
+            workspaceId = _isValidObjectId(rawWid) ? rawWid : "";
+            userId      = _isValidObjectId(rawUid) ? rawUid : "";
+            if (rawWid && !workspaceId) {
+                _warn("Workspace ID guardado ('" + rawWid + "') no es un Object ID hex " +
+                      "de 24 chars (¿usaste el nombre?). Voy a usar el default del usuario.");
+            }
         }
         if (workspaceId && userId && projects.length > 0) {
             callback(true);
@@ -121,12 +142,23 @@ QtObject {
             try {
                 var u = JSON.parse(body);
                 store.userId = u.id || "";
-                if (!store.workspaceId) {
+                // Always overwrite an invalid workspaceId with the user's
+                // default, AND persist it back so the user doesn't have to
+                // clear the wrong value manually.
+                if (!_isValidObjectId(store.workspaceId)) {
                     store.workspaceId = u.defaultWorkspace || u.activeWorkspace || "";
                 }
                 plasmoidApi.configuration.clockifyUserId      = store.userId;
                 plasmoidApi.configuration.clockifyWorkspaceId = store.workspaceId;
                 _log("user=" + store.userId + "  workspace=" + store.workspaceId);
+                if (!_isValidObjectId(store.workspaceId)) {
+                    store.lastError = qsTr("No pude resolver un workspace válido — " +
+                                           "/user no devolvió defaultWorkspace.");
+                    _warn(store.lastError);
+                    _bump();
+                    callback(false);
+                    return;
+                }
                 _loadProjectsThen(callback);
             } catch (e) {
                 store.lastError = qsTr("Respuesta inválida de /user.");

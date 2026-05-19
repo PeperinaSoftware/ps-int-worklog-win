@@ -48,12 +48,35 @@ ColumnLayout {
             }
         }
 
-        TextField {
-            id: workspaceField
+        RowLayout {
             Kirigami.FormData.label: i18n("Workspace ID:")
+            spacing: Kirigami.Units.smallSpacing
+            TextField {
+                id: workspaceField
+                Layout.fillWidth: true
+                placeholderText: i18n("Vacío = usa tu workspace por defecto")
+                inputMethodHints: Qt.ImhNoPredictiveText
+            }
+            Button {
+                text: i18n("Limpiar")
+                icon.name: "edit-clear"
+                enabled: workspaceField.text.length > 0
+                onClicked: workspaceField.text = ""
+                ToolTip.text: i18n("Vaciar el campo para que el plasmoide use el workspace por defecto")
+                ToolTip.visible: hovered
+                ToolTip.delay: 500
+            }
+        }
+
+        Label {
+            Kirigami.FormData.label: ""
             Layout.fillWidth: true
-            placeholderText: i18n("Dejá vacío para que se autoresuelva")
-            inputMethodHints: Qt.ImhNoPredictiveText
+            wrapMode: Text.WordWrap
+            opacity: 0.65
+            font.pixelSize: Kirigami.Theme.smallFont.pixelSize
+            text: i18n("Es un Object ID hex de 24 caracteres (ej. 60661036c145ea559a4e8be6), no "
+                     + "el nombre del workspace. Si lo dejás vacío, el plasmoide va a resolver "
+                     + "tu workspace por defecto en la primera sincronización.")
         }
 
         TextField {
