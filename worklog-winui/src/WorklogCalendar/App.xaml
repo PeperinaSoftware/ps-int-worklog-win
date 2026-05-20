@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application
+    x:Class="WorklogCalendar.App"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+            </ResourceDictionary.MergedDictionaries>
+
+            <!-- Brand colours mirrored from the KDE plasmoid (Jira purple, Clockify green). -->
+            <Color x:Key="JiraFillColor">#8C9B91E6</Color>
+            <Color x:Key="JiraBorderColor">#F0786EC8</Color>
+            <Color x:Key="ClockifyFillColor">#8C78D791</Color>
+            <Color x:Key="ClockifyBorderColor">#F046AA64</Color>
+            <SolidColorBrush x:Key="JiraFillBrush" Color="{StaticResource JiraFillColor}" />
+            <SolidColorBrush x:Key="JiraBorderBrush" Color="{StaticResource JiraBorderColor}" />
+            <SolidColorBrush x:Key="ClockifyFillBrush" Color="{StaticResource ClockifyFillColor}" />
+            <SolidColorBrush x:Key="ClockifyBorderBrush" Color="{StaticResource ClockifyBorderColor}" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>
