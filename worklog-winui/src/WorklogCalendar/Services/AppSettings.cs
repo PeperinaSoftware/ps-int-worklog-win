@@ -3,7 +3,6 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace WorklogCalendar.Services;
 
@@ -44,7 +43,8 @@ public sealed class AppSettings : INotifyPropertyChanged
     /// <summary>Week start day. 0 = Sunday, 1 = Monday. Default 0 to match the plasmoid.</summary>
     public int FirstDayOfWeek { get; set; } = 0;
 
-    [JsonIgnore]
+    // Events aren't serialized by System.Text.Json — no [JsonIgnore] needed
+    // (and [JsonIgnore] would fail to compile on an event anyway).
     public event PropertyChangedEventHandler? PropertyChanged;
     public void Raise([CallerMemberName] string name = "") =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

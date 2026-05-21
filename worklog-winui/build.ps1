@@ -33,8 +33,14 @@ $publishArgs = @("publish", $proj,
     "-p:PublishSingleFile=false")
 
 & dotnet @publishArgs
+if ($LASTEXITCODE -ne 0) {
+    throw "dotnet publish exited with code $LASTEXITCODE — see errors above."
+}
 
 $out = Join-Path $Here "src\WorklogCalendar\bin\$Arch\$Config\net8.0-windows10.0.19041.0\$rid\publish"
+if (-not (Test-Path (Join-Path $out "WorklogCalendar.exe"))) {
+    throw "Build reported success but WorklogCalendar.exe is missing in $out."
+}
 Write-Host ""
 Write-Host "Built. Output: $out" -ForegroundColor Green
 Write-Host "Run with: $out\WorklogCalendar.exe" -ForegroundColor Green
