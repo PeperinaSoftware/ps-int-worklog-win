@@ -1,4 +1,4 @@
-# install.ps1 — build a Release publish bundle and copy it to
+﻿# install.ps1 -- build a Release publish bundle and copy it to
 # %LOCALAPPDATA%\Programs\WorklogCalendar, then create a Start-menu shortcut.
 #
 # Usage:
