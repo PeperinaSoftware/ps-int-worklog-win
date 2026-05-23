@@ -43,6 +43,18 @@ public sealed class AppSettings : INotifyPropertyChanged
     /// <summary>Week start day. 0 = Sunday, 1 = Monday. Default 0 to match the plasmoid.</summary>
     public int FirstDayOfWeek { get; set; } = 0;
 
+    // -------- Sprint gauges (Jira / Jira-Clockify, 9h mode only) --------
+    /// <summary>Render the two ring gauges below the calendar.</summary>
+    public bool ShowSprintGauges { get; set; } = true;
+    /// <summary>"subtask-customfield" (default), "agile-board" or "assignee-jql".</summary>
+    public string SprintStrategy { get; set; } = "subtask-customfield";
+    /// <summary>Custom-field id holding the sprint array. Default works on most Jira Cloud sites.</summary>
+    public string SprintField { get; set; } = "customfield_10020";
+    /// <summary>Board id for the agile-board strategy. 0 = unset.</summary>
+    public int SprintBoardId { get; set; } = 0;
+    /// <summary>"api" (Jira's remainingEstimate) or "calculated" (original - spent).</summary>
+    public string RemainingMode { get; set; } = "api";
+
     // Events aren't serialized by System.Text.Json — no [JsonIgnore] needed
     // (and [JsonIgnore] would fail to compile on an event anyway).
     public event PropertyChangedEventHandler? PropertyChanged;

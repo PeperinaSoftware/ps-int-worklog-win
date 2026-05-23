@@ -7,10 +7,11 @@
     Title="Worklog Calendar">
     <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="Auto" />
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" /> <!-- header -->
+            <RowDefinition Height="Auto" /> <!-- status -->
+            <RowDefinition Height="*" />    <!-- calendar -->
+            <RowDefinition Height="Auto" /> <!-- gauges -->
+            <RowDefinition Height="Auto" /> <!-- footer -->
         </Grid.RowDefinitions>
 
         <!-- ============ Header ============ -->
@@ -53,14 +54,21 @@
         </Grid>
 
         <!-- ============ Status bar ============ -->
+        <!-- Always-visible Opacity-based status so the calendar below
+             doesn't jump up/down on every sync/clear cycle. -->
         <TextBlock x:Name="StatusLabel" Grid.Row="1" Padding="12,0,12,4"
-                   Opacity="0.85" Visibility="Collapsed" FontSize="12" TextWrapping="Wrap" />
+                   Opacity="0" FontSize="12" TextWrapping="Wrap"
+                   Text=" " />
 
         <!-- ============ Calendar ============ -->
         <controls:WeekCalendarControl x:Name="Calendar" Grid.Row="2" Margin="6,4,6,4" />
 
+        <!-- ============ Sprint gauges (Jira / Jira-Clockify, 9h only) ====== -->
+        <controls:SprintGaugesControl x:Name="Gauges" Grid.Row="3" Height="190"
+                                       Visibility="Collapsed" Margin="6,4,6,4" />
+
         <!-- ============ Footer ============ -->
-        <Grid Grid.Row="3" Padding="12,8" ColumnSpacing="8">
+        <Grid Grid.Row="4" Padding="12,8" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

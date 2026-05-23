@@ -57,7 +57,7 @@
                   BorderBrush="{ThemeResource ControlElevationBorderBrush}" BorderThickness="1" Margin="0,4,0,0"
                   MinHeight="220" MaxHeight="320">
             <ListView.ItemTemplate>
-                <DataTemplate>
+                <DataTemplate xmlns:m="using:WorklogCalendar.Models">
                     <Grid ColumnSpacing="8" Padding="2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="100" />
@@ -66,7 +66,9 @@
                         </Grid.ColumnDefinitions>
                         <TextBlock Text="{Binding Key}" FontFamily="Consolas" FontWeight="SemiBold" />
                         <TextBlock Text="{Binding Summary}" Grid.Column="1" TextTrimming="CharacterEllipsis" />
-                        <TextBlock Text="{Binding Status}" Grid.Column="2" Opacity="0.6" FontSize="11" />
+                        <!-- "Subtarea · EN CURSO · 2h 30m" -->
+                        <TextBlock Text="{Binding MetaDisplay}" Grid.Column="2"
+                                   Opacity="0.6" FontSize="11" />
                     </Grid>
                 </DataTemplate>
             </ListView.ItemTemplate>

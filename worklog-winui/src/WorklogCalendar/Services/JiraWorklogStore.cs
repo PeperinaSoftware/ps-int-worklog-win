@@ -35,6 +35,11 @@ public sealed class JiraWorklogStore : INotifyPropertyChanged
     public IReadOnlyList<JiraIssue> AssignableIssues { get; private set; } = Array.Empty<JiraIssue>();
     public string MyAccountId { get; private set; } = "";
 
+    // ----- Sprint (powers the SprintGauges control) -----
+    public JiraSprint? CurrentSprint { get; private set; }
+    public int SprintAvailableSec { get; private set; }
+    public int SprintConsumedSec { get; private set; }
+
     private bool _loading;
     public bool Loading { get => _loading; private set { _loading = value; Raise(); } }
 
@@ -186,7 +191,10 @@ public sealed class JiraWorklogStore : INotifyPropertyChanged
             ? "assignee = currentUser() AND statusCategory != Done"
             : _settings.JiraIssueJql.Trim();
         var max = Math.Clamp(_settings.JiraIssueMax, 10, 200);
-        var url = $"{creds.Site}/rest/api/3/search/jql?jql={Uri.EscapeDataString(jql)}&maxResults={max}&fields=summary,status,issuetype";
+        // timeestimate = remaining estimate (seconds); timetracking is the
+        // human-readable variant; we keep both for resilience across Jira
+        // instances, plus timeoriginalestimate for the "calculated" mode.
+        var url = $"{creds.Site}/rest/api/3/search/jql?jql={Uri.EscapeDataString(jql)}&maxResults={max}&fields=summary,status,issuetype,timeoriginalestimate,timeestimate,timetracking";
         Log("Picker GET " + url);
         var (code, body) = await SendAsync("GET", url, null);
         if (code != 200) { Warn($"Picker exit={code}: {Trim(body, 200)}"); return false; }
@@ -209,6 +217,7 @@ public sealed class JiraWorklogStore : INotifyPropertyChanged
                             tE.TryGetProperty("name", out var tnE)) it.IssueType = tnE.GetString() ?? "";
                         if (f.TryGetProperty("status", out var stE) &&
                             stE.TryGetProperty("name", out var snE)) it.Status = snE.GetString() ?? "";
+                        it.RemainingSec = RemainingSec(f);
                     }
                     list.Add(it);
                 }
@@ -223,6 +232,296 @@ public sealed class JiraWorklogStore : INotifyPropertyChanged
             Warn("Picker parse: " + ex);
             return false;
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Sprint info (powers the SprintGauges control)
+    // -----------------------------------------------------------------------
+    // Three strategies (configurable via _settings.SprintStrategy):
+    //
+    //   "subtask-customfield" (default): query subtasks assigned to me
+    //     with the sprint custom field (customfield_10020 on most Jira
+    //     instances) and pick the entry with state="active". Works even
+    //     when parent stories are unassigned and only the subtasks belong
+    //     to the user.
+    //
+    //   "agile-board": fetch the active sprint of a specific board via
+    //     /rest/agile/1.0/board/{id}/sprint?state=active. Requires the
+    //     board id in _settings.SprintBoardId.
+    //
+    //   "assignee-jql": original behavior, "sprint in openSprints() AND
+    //     assignee = currentUser()". Kept as a fallback.
+
+    public async Task<bool> FetchSprintInfoAsync()
+    {
+        if (!HasCredentials(out var creds)) return false;
+        if (string.IsNullOrEmpty(MyAccountId))
+        {
+            // Resolve accountId once — required by the consumed-by-me filter.
+            var (mcode, mbody) = await SendAsync("GET", $"{creds.Site}/rest/api/3/myself", null);
+            if (mcode == 200)
+            {
+                try
+                {
+                    using var d = JsonDocument.Parse(mbody);
+                    MyAccountId = d.RootElement.TryGetProperty("accountId", out var a) ? (a.GetString() ?? "") : "";
+                }
+                catch { /* swallow */ }
+            }
+        }
+        var strategy = (_settings.SprintStrategy ?? "subtask-customfield").ToLowerInvariant();
+        Log("Sprint strategy: " + strategy);
+        return strategy switch
+        {
+            "agile-board" => await FetchSprintAgileBoardAsync(creds),
+            "assignee-jql" => await FetchSprintAssigneeJqlAsync(creds),
+            _ => await FetchSprintSubtaskFieldAsync(creds)
+        };
+    }
+
+    private async Task<bool> FetchSprintSubtaskFieldAsync(Creds creds)
+    {
+        var field = string.IsNullOrEmpty(_settings.SprintField) ? "customfield_10020" : _settings.SprintField;
+        var jql = "issuetype in subTaskIssueTypes() AND assignee = currentUser()";
+        var url = $"{creds.Site}/rest/api/3/search/jql?jql={Uri.EscapeDataString(jql)}" +
+                  $"&maxResults=200&fields=summary,worklog,timeoriginalestimate,timeestimate,timetracking,{Uri.EscapeDataString(field)}";
+        Log("Sprint(subtask) GET " + url);
+        var (code, body) = await SendAsync("GET", url, null);
+        if (code != 200) { Warn($"subtask-customfield exit={code}: {Trim(body, 240)}"); ClearSprint(); return false; }
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("issues", out var issues) || issues.ValueKind != JsonValueKind.Array)
+            { ClearSprint(); return true; }
+            Log($"subtask-customfield: {issues.GetArrayLength()} subtarea(s) recibidas.");
+            if (issues.GetArrayLength() == 0) { ClearSprint(); return true; }
+
+            var active = FindActiveSprintIn(issues, field);
+            if (active == null)
+            {
+                Warn($"Ningún sprint activo en el campo '{field}' de las subtareas. ¿Cambió el id del custom field?");
+                ClearSprint();
+                return true;
+            }
+            SetActiveSprint(active);
+            ComputeSprintTotalsFromIssues(issues, active, field);
+            return true;
+        }
+        catch (Exception ex) { Warn("subtask-customfield parse: " + ex); ClearSprint(); return false; }
+    }
+
+    private async Task<bool> FetchSprintAgileBoardAsync(Creds creds)
+    {
+        var boardId = _settings.SprintBoardId;
+        if (boardId <= 0)
+        {
+            Warn("agile-board: 'Board ID' no configurado.");
+            ClearSprint();
+            return false;
+        }
+        var url = $"{creds.Site}/rest/agile/1.0/board/{boardId}/sprint?state=active";
+        Log("Sprint(agile) GET " + url);
+        var (code, body) = await SendAsync("GET", url, null);
+        if (code != 200) { Warn($"agile-board sprint list exit={code}: {Trim(body, 240)}"); ClearSprint(); return false; }
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("values", out var values) || values.ValueKind != JsonValueKind.Array || values.GetArrayLength() == 0)
+            {
+                Log($"agile-board: el board {boardId} no tiene sprints activos.");
+                ClearSprint();
+                return true;
+            }
+            var active = ParseSprintElement(values[0]);
+            SetActiveSprint(active);
+
+            var jql2 = $"sprint = {active.Id} AND assignee = currentUser()";
+            var url2 = $"{creds.Site}/rest/api/3/search/jql?jql={Uri.EscapeDataString(jql2)}" +
+                       "&maxResults=200&fields=summary,worklog,timeoriginalestimate,timeestimate,timetracking";
+            Log("Sprint(agile) issues GET " + url2);
+            var (c2, b2) = await SendAsync("GET", url2, null);
+            if (c2 != 200)
+            {
+                Warn($"agile-board issues exit={c2}: {Trim(b2, 240)}");
+                SprintAvailableSec = 0; SprintConsumedSec = 0;
+                Raise(nameof(SprintAvailableSec)); Raise(nameof(SprintConsumedSec));
+                return true;
+            }
+            try
+            {
+                using var d2 = JsonDocument.Parse(b2);
+                if (d2.RootElement.TryGetProperty("issues", out var iss2))
+                    ComputeSprintTotalsFromIssues(iss2, active, null);
+                return true;
+            }
+            catch (Exception ex) { Warn("agile-board issues parse: " + ex); return false; }
+        }
+        catch (Exception ex) { Warn("agile-board parse: " + ex); ClearSprint(); return false; }
+    }
+
+    private async Task<bool> FetchSprintAssigneeJqlAsync(Creds creds)
+    {
+        var field = string.IsNullOrEmpty(_settings.SprintField) ? "customfield_10020" : _settings.SprintField;
+        var jql = "sprint in openSprints() AND assignee = currentUser()";
+        var url = $"{creds.Site}/rest/api/3/search/jql?jql={Uri.EscapeDataString(jql)}" +
+                  $"&maxResults=200&fields=summary,worklog,timeoriginalestimate,timeestimate,timetracking,{Uri.EscapeDataString(field)}";
+        Log("Sprint(assignee) GET " + url);
+        var (code, body) = await SendAsync("GET", url, null);
+        if (code != 200) { Warn($"assignee-jql exit={code}: {Trim(body, 240)}"); ClearSprint(); return false; }
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("issues", out var issues) || issues.GetArrayLength() == 0)
+            { ClearSprint(); return true; }
+            var active = FindActiveSprintIn(issues, field);
+            if (active == null) { ClearSprint(); return true; }
+            SetActiveSprint(active);
+            ComputeSprintTotalsFromIssues(issues, active, field);
+            return true;
+        }
+        catch (Exception ex) { Warn("assignee-jql parse: " + ex); ClearSprint(); return false; }
+    }
+
+    /// <summary>Scan issues' sprint custom-field arrays for the first one in state=active.</summary>
+    private static JiraSprint? FindActiveSprintIn(JsonElement issues, string field)
+    {
+        foreach (var iss in issues.EnumerateArray())
+        {
+            if (!iss.TryGetProperty("fields", out var f)) continue;
+            if (!f.TryGetProperty(field, out var arrE)) continue;
+            // The field can be an array (most common) or a single object on
+            // older Jira instances.
+            if (arrE.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var s in arrE.EnumerateArray())
+                {
+                    if (IsActive(s)) return ParseSprintElement(s);
+                }
+            }
+            else if (arrE.ValueKind == JsonValueKind.Object && IsActive(arrE))
+            {
+                return ParseSprintElement(arrE);
+            }
+        }
+        return null;
+    }
+
+    private static bool IsActive(JsonElement s)
+    {
+        if (!s.TryGetProperty("state", out var stE)) return false;
+        var st = (stE.GetString() ?? "").ToLowerInvariant();
+        return st == "active";
+    }
+
+    private static JiraSprint ParseSprintElement(JsonElement s) => new()
+    {
+        Id = s.TryGetProperty("id", out var idE) && idE.ValueKind == JsonValueKind.Number ? idE.GetInt64() : 0,
+        Name = s.TryGetProperty("name", out var nE) ? nE.GetString() ?? "" : "",
+        StartDate = s.TryGetProperty("startDate", out var sdE) ? sdE.GetString() ?? "" : "",
+        EndDate = s.TryGetProperty("endDate", out var edE) ? edE.GetString() ?? "" : ""
+    };
+
+    private void SetActiveSprint(JiraSprint s)
+    {
+        CurrentSprint = s;
+        Raise(nameof(CurrentSprint));
+    }
+
+    private void ClearSprint()
+    {
+        CurrentSprint = null;
+        SprintAvailableSec = 0;
+        SprintConsumedSec = 0;
+        Raise(nameof(CurrentSprint));
+        Raise(nameof(SprintAvailableSec));
+        Raise(nameof(SprintConsumedSec));
+    }
+
+    /// <summary>
+    /// Remaining seconds per issue. "api" trusts Jira's
+    /// remainingEstimateSeconds; "calculated" uses
+    /// max(0, originalEstimate - timeSpent) which is what users want when
+    /// remainingEstimate hasn't been kept up to date.
+    /// </summary>
+    private int RemainingSec(JsonElement f)
+    {
+        var mode = (_settings.RemainingMode ?? "api").ToLowerInvariant();
+        if (mode == "calculated")
+        {
+            int orig = 0, spent = 0;
+            if (f.TryGetProperty("timeoriginalestimate", out var oE) && oE.ValueKind == JsonValueKind.Number) orig = oE.GetInt32();
+            if (f.TryGetProperty("timetracking", out var tt))
+            {
+                if (orig == 0 && tt.TryGetProperty("originalEstimateSeconds", out var oo) && oo.ValueKind == JsonValueKind.Number) orig = oo.GetInt32();
+                if (tt.TryGetProperty("timeSpentSeconds", out var ss) && ss.ValueKind == JsonValueKind.Number) spent = ss.GetInt32();
+            }
+            return Math.Max(0, orig - spent);
+        }
+        // "api"
+        if (f.TryGetProperty("timetracking", out var tt2) &&
+            tt2.TryGetProperty("remainingEstimateSeconds", out var rE) && rE.ValueKind == JsonValueKind.Number)
+            return rE.GetInt32();
+        if (f.TryGetProperty("timeestimate", out var teE) && teE.ValueKind == JsonValueKind.Number) return teE.GetInt32();
+        return 0;
+    }
+
+    /// <summary>
+    /// If <paramref name="fieldOrNull"/> is non-null, only issues whose
+    /// sprint custom-field array contains <c>active.Id</c> are counted.
+    /// Otherwise the caller has already filtered (e.g. via "sprint = N" JQL).
+    /// </summary>
+    private void ComputeSprintTotalsFromIssues(JsonElement issues, JiraSprint active, string? fieldOrNull)
+    {
+        long sStart = DateTimeOffset.TryParse(active.StartDate, out var sd) ? sd.ToUnixTimeMilliseconds() : 0;
+        long sEnd = DateTimeOffset.TryParse(active.EndDate, out var ed) ? ed.ToUnixTimeMilliseconds() : long.MaxValue;
+        int available = 0, consumed = 0;
+        foreach (var iss in issues.EnumerateArray())
+        {
+            if (!iss.TryGetProperty("fields", out var f)) continue;
+            if (fieldOrNull != null)
+            {
+                bool hit = false;
+                if (f.TryGetProperty(fieldOrNull, out var arrE))
+                {
+                    if (arrE.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var s in arrE.EnumerateArray())
+                        {
+                            if (s.TryGetProperty("id", out var idE) && idE.ValueKind == JsonValueKind.Number && idE.GetInt64() == active.Id) { hit = true; break; }
+                        }
+                    }
+                    else if (arrE.ValueKind == JsonValueKind.Object &&
+                             arrE.TryGetProperty("id", out var idE2) && idE2.ValueKind == JsonValueKind.Number && idE2.GetInt64() == active.Id)
+                        hit = true;
+                }
+                if (!hit) continue;
+            }
+            available += RemainingSec(f);
+
+            if (f.TryGetProperty("worklog", out var wlC) &&
+                wlC.TryGetProperty("worklogs", out var wls) && wls.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var w in wls.EnumerateArray())
+                {
+                    var startedStr = w.TryGetProperty("started", out var stE) ? stE.GetString() ?? "" : "";
+                    if (!DateTimeOffset.TryParse(startedStr, out var dto)) continue;
+                    long ms = dto.ToUnixTimeMilliseconds();
+                    if (ms < sStart || ms > sEnd) continue;
+                    if (!string.IsNullOrEmpty(MyAccountId) && w.TryGetProperty("author", out var au))
+                    {
+                        var aid = au.TryGetProperty("accountId", out var aidE) ? aidE.GetString() ?? "" : "";
+                        if (!string.IsNullOrEmpty(aid) && aid != MyAccountId) continue;
+                    }
+                    if (w.TryGetProperty("timeSpentSeconds", out var dE) && dE.ValueKind == JsonValueKind.Number)
+                        consumed += dE.GetInt32();
+                }
+            }
+        }
+        SprintAvailableSec = available;
+        SprintConsumedSec = consumed;
+        Raise(nameof(SprintAvailableSec));
+        Raise(nameof(SprintConsumedSec));
+        Log($"Sprint '{active.Name}': remaining={available}s, consumed={consumed}s.");
     }
 
     public async Task<(bool ok, string err)> CreateWorklogAsync(string issueKey, DateTime started, int durationSec, string comment)

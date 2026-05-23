@@ -56,6 +56,30 @@
                         <CheckBox x:Name="AlwaysOnTop" Content="Mantener sobre otras ventanas"
                                   Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" />
                     </Grid>
+
+                    <CheckBox x:Name="ShowGauges" Content="Mostrar gauges Sprint + Horas (solo modo 9h, fuente Jira o Jira/Clockify)"
+                              Margin="0,8,0,0" />
+
+                    <!-- Sprint (experimental) -->
+                    <TextBlock Text="Sprint (experimental)" FontWeight="SemiBold"
+                               Margin="0,16,0,4" Opacity="0.85" />
+                    <TextBlock Text="Cómo descubrir el sprint activo del usuario."
+                               Opacity="0.6" FontSize="11" TextWrapping="Wrap" />
+                    <RadioButtons x:Name="SprintStrategyChooser" SelectedIndex="0">
+                        <x:String>Subtask + customfield (recomendado para setups con subtareas)</x:String>
+                        <x:String>Agile board (requiere Board ID)</x:String>
+                        <x:String>Assignee JQL (sprint in openSprints() AND assignee = currentUser())</x:String>
+                    </RadioButtons>
+                    <TextBox x:Name="SprintField" Header="Sprint custom field id"
+                             PlaceholderText="customfield_10020" />
+                    <NumberBox x:Name="SprintBoardId" Header="Board ID (solo para 'Agile board')"
+                               Minimum="0" Maximum="9999999" SpinButtonPlacementMode="Inline" />
+                    <TextBlock Text="Cómo calcular las horas Disponibles."
+                               Opacity="0.6" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0" />
+                    <RadioButtons x:Name="RemainingChooser" SelectedIndex="0">
+                        <x:String>API (Jira's remainingEstimateSeconds)</x:String>
+                        <x:String>Calculado (originalEstimate - timeSpent)</x:String>
+                    </RadioButtons>
                 </StackPanel>
             </ScrollViewer>
         </PivotItem>

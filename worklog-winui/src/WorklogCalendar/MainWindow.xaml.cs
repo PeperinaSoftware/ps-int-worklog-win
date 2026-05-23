@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI;
 using Microsoft.UI.Windowing;
@@ -39,6 +40,7 @@ public sealed partial class MainWindow : Window
         Calendar.Settings = _settings;
         Calendar.JiraStore = _jira;
         Calendar.ClockifyStore = _clockify;
+        Gauges.Store = _jira;
 
         Title = "Worklog Calendar";
         ApplyWindowGeometry();
@@ -51,6 +53,15 @@ public sealed partial class MainWindow : Window
         Calendar.EditJiraRequested += w => _ = OpenJiraEditAsync(w, w.StartedUnixMs, w.StartedUnixMs + w.DurationSec * 1000L);
         Calendar.CreateClockifyRequested += (dayMs, sMs, eMs) => _ = OpenClockifyEditAsync(null, sMs, eMs);
         Calendar.EditClockifyRequested += c => _ = OpenClockifyEditAsync(c, c.StartedUnixMs, c.StartedUnixMs + c.DurationSec * 1000L);
+
+        // Drag-to-move / edge-resize: one handler per source. We update the
+        // store; the JiraStore.PropertyChanged hook below triggers a refetch.
+        Calendar.MoveJiraRequested += (w, newStart, newDur) => _ = MoveJiraAsync(w, newStart, newDur);
+        Calendar.MoveClockifyRequested += (c, newStart, newDur) => _ = MoveClockifyAsync(c, newStart, newDur);
+
+        // Duplicate buttons (top-right of each block on hover).
+        Calendar.DuplicateJiraRequested += w => _ = DuplicateJiraAsync(w);
+        Calendar.DuplicateClockifyRequested += c => _ = DuplicateClockifyAsync(c);
 
         PrevBtn.Click += async (s, e) => { _weekStart = _weekStart.AddDays(-7); await RefreshAsync(); };
         NextBtn.Click += async (s, e) => { _weekStart = _weekStart.AddDays(7); await RefreshAsync(); };
@@ -147,9 +158,17 @@ public sealed partial class MainWindow : Window
         var tasks = new List<Task>();
         if (Calendar.ShowJira) tasks.Add(_jira.FetchWeekAsync(_weekStart));
         if (Calendar.ShowClockify) tasks.Add(_clockify.FetchWeekAsync(_weekStart));
+        if (ShowGauges) tasks.Add(_jira.FetchSprintInfoAsync());
         try { await Task.WhenAll(tasks); }
         catch (Exception ex) { System.Diagnostics.Debug.WriteLine("Refresh error: " + ex); }
+        if (ShowGauges) Gauges.StartFillAnimation();
     }
+
+    /// <summary>Gauges only when source is Jira-ish AND view mode is 9h AND toggle is on.</summary>
+    private bool ShowGauges =>
+        _settings.ShowSprintGauges
+        && _settings.ViewMode == "9h"
+        && (_settings.Source == "jira" || _settings.Source == "jira-clockify");
 
     private void UpdateHeaderLabels()
     {
@@ -167,19 +186,57 @@ public sealed partial class MainWindow : Window
         SyncProjectCombo.Visibility = combined ? Visibility.Visible : Visibility.Collapsed;
         SyncProjectSwatch.Visibility = combined ? Visibility.Visible : Visibility.Collapsed;
         SyncJiraToClockifyBtn.Visibility = combined ? Visibility.Visible : Visibility.Collapsed;
+        Gauges.Visibility = ShowGauges ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    // The status label always renders a non-breaking space so its height
+    // is reserved — opacity goes to 0 when there's nothing to say. Avoids
+    // the calendar below jumping up/down on every sync/clear cycle.
+    private CancellationTokenSource? _statusOverrideCts;
+    private bool _statusOverrideActive;
 
     private void UpdateStatus()
     {
+        if (_statusOverrideActive) return;
         var parts = new List<string>();
         if (_jira.Loading) parts.Add("Jira: cargando…");
         else if (!string.IsNullOrEmpty(_jira.LastError)) parts.Add($"Jira: {_jira.LastError}");
         if (_clockify.Loading) parts.Add("Clockify: cargando…");
         else if (!string.IsNullOrEmpty(_clockify.LastError)) parts.Add($"Clockify: {_clockify.LastError}");
 
-        StatusLabel.Text = string.Join("   ·   ", parts);
-        StatusLabel.Visibility = parts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         bool isError = !string.IsNullOrEmpty(_jira.LastError) || !string.IsNullOrEmpty(_clockify.LastError);
+        ApplyStatus(string.Join("   ·   ", parts), isError);
+    }
+
+    /// <summary>Show a transient status message; clears after 6 s.</summary>
+    private void SetStatus(string text, bool isError)
+    {
+        _statusOverrideActive = true;
+        ApplyStatus(text, isError);
+        _statusOverrideCts?.Cancel();
+        _statusOverrideCts = new CancellationTokenSource();
+        var ct = _statusOverrideCts.Token;
+        _ = Task.Delay(6000, ct).ContinueWith(_ =>
+        {
+            if (ct.IsCancellationRequested) return;
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                _statusOverrideActive = false;
+                UpdateStatus();
+            });
+        }, TaskScheduler.Default);
+    }
+
+    private void ApplyStatus(string text, bool isError)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            StatusLabel.Text = " ";    // NBSP keeps line height
+            StatusLabel.Opacity = 0;
+            return;
+        }
+        StatusLabel.Text = text;
+        StatusLabel.Opacity = 0.85;
         StatusLabel.Foreground = isError
             ? new SolidColorBrush(Color.FromArgb(255, 234, 90, 84))
             : new SolidColorBrush(Color.FromArgb(255, 120, 200, 130));
@@ -273,20 +330,59 @@ public sealed partial class MainWindow : Window
     private async Task SyncJiraToClockify()
     {
         SyncJiraToClockifyBtn.IsEnabled = false;
-        StatusLabel.Visibility = Visibility.Visible;
-        StatusLabel.Text = "Copiando Jira → Clockify…";
-        StatusLabel.Foreground = new SolidColorBrush(Color.FromArgb(255, 180, 200, 220));
+        SetStatus("Copiando Jira → Clockify…", false);
         try
         {
             var projectId = string.IsNullOrEmpty(_settings.ClockifyDefaultProjectId) ? null : _settings.ClockifyDefaultProjectId;
             var (created, skipped, failed) = await _clockify.SyncFromJiraAsync(_jira.Worklogs, projectId, _settings.ClockifyBillableDefault);
-            StatusLabel.Text = $"Sync terminado: {created} creadas, {skipped} ya existían, {failed} fallaron.";
-            StatusLabel.Foreground = failed > 0
-                ? new SolidColorBrush(Color.FromArgb(255, 234, 90, 84))
-                : new SolidColorBrush(Color.FromArgb(255, 120, 200, 130));
+            SetStatus($"Sync terminado: {created} creadas, {skipped} ya existían, {failed} fallaron.", failed > 0);
             await _clockify.FetchWeekAsync(_weekStart);
         }
         finally { SyncJiraToClockifyBtn.IsEnabled = true; }
+    }
+
+    // -------- Move / duplicate (single Connections-style refetch) -----------
+
+    private async Task MoveJiraAsync(JiraWorklog w, long newStartMs, int newDur)
+    {
+        SetStatus("Actualizando worklog Jira…", false);
+        var start = DateTimeOffset.FromUnixTimeMilliseconds(newStartMs).LocalDateTime;
+        var (ok, err) = await _jira.UpdateWorklogAsync(w.IssueKey, w.Id, start, newDur, w.Comment ?? "");
+        if (ok) await RefreshAsync();
+        else SetStatus($"Jira: no se pudo guardar — {err}", true);
+    }
+
+    private async Task MoveClockifyAsync(ClockifyEntry c, long newStartMs, int newDur)
+    {
+        SetStatus("Actualizando entrada Clockify…", false);
+        var start = DateTimeOffset.FromUnixTimeMilliseconds(newStartMs).LocalDateTime;
+        var end = start.AddSeconds(newDur);
+        var (ok, err) = await _clockify.UpdateEntryAsync(c.Id, start, end, c.Description ?? "",
+                                                         string.IsNullOrEmpty(c.ProjectId) ? null : c.ProjectId,
+                                                         c.TagIds, c.Billable);
+        if (ok) await RefreshAsync();
+        else SetStatus($"Clockify: no se pudo guardar — {err}", true);
+    }
+
+    private async Task DuplicateJiraAsync(JiraWorklog w)
+    {
+        SetStatus("Duplicando worklog Jira…", false);
+        var start = DateTimeOffset.FromUnixTimeMilliseconds(w.StartedUnixMs).LocalDateTime;
+        var (ok, err) = await _jira.CreateWorklogAsync(w.IssueKey, start, w.DurationSec, w.Comment ?? "");
+        if (ok) await RefreshAsync();
+        else SetStatus($"Jira: no se pudo duplicar — {err}", true);
+    }
+
+    private async Task DuplicateClockifyAsync(ClockifyEntry c)
+    {
+        SetStatus("Duplicando entrada Clockify…", false);
+        var start = DateTimeOffset.FromUnixTimeMilliseconds(c.StartedUnixMs).LocalDateTime;
+        var end = start.AddSeconds(c.DurationSec);
+        var (ok, err) = await _clockify.CreateEntryAsync(start, end, c.Description ?? "",
+                                                         string.IsNullOrEmpty(c.ProjectId) ? null : c.ProjectId,
+                                                         c.TagIds, c.Billable);
+        if (ok) await RefreshAsync();
+        else SetStatus($"Clockify: no se pudo duplicar — {err}", true);
     }
 
     // -------- Helpers --------------------------------------------------------

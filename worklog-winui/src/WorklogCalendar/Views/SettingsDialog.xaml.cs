@@ -25,6 +25,17 @@ public sealed partial class SettingsDialog : ContentDialog
         WinHeight.Value = _s.WindowHeight;
         AlwaysOnTop.IsChecked = _s.AlwaysOnTop;
 
+        ShowGauges.IsChecked = _s.ShowSprintGauges;
+        SprintStrategyChooser.SelectedIndex = _s.SprintStrategy switch
+        {
+            "agile-board" => 1,
+            "assignee-jql" => 2,
+            _ => 0
+        };
+        SprintField.Text = _s.SprintField;
+        SprintBoardId.Value = _s.SprintBoardId;
+        RemainingChooser.SelectedIndex = _s.RemainingMode == "calculated" ? 1 : 0;
+
         JiraSite.Text = _s.JiraSite;
         JiraEmail.Text = _s.JiraEmail;
         JiraToken.Password = _s.JiraToken;
@@ -56,6 +67,17 @@ public sealed partial class SettingsDialog : ContentDialog
         _s.WindowWidth = (int)WinWidth.Value;
         _s.WindowHeight = (int)WinHeight.Value;
         _s.AlwaysOnTop = AlwaysOnTop.IsChecked == true;
+
+        _s.ShowSprintGauges = ShowGauges.IsChecked == true;
+        _s.SprintStrategy = SprintStrategyChooser.SelectedIndex switch
+        {
+            1 => "agile-board",
+            2 => "assignee-jql",
+            _ => "subtask-customfield"
+        };
+        _s.SprintField = (SprintField.Text ?? "").Trim();
+        _s.SprintBoardId = (int)SprintBoardId.Value;
+        _s.RemainingMode = RemainingChooser.SelectedIndex == 1 ? "calculated" : "api";
 
         _s.JiraSite = (JiraSite.Text ?? "").Trim();
         _s.JiraEmail = (JiraEmail.Text ?? "").Trim();

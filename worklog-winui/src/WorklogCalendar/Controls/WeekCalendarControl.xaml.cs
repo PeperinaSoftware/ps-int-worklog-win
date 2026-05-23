@@ -15,11 +15,20 @@ using WorklogCalendar.Services;
 namespace WorklogCalendar.Controls;
 
 /// <summary>
-/// Week-view calendar grid. C# port of <c>WorklogCalendar.qml</c>.
-/// Renders 7 day columns × N rows of 30-min slots, with Jira / Clockify
+/// Week-view calendar grid. Port of <c>WorklogCalendar.qml</c>.
+/// Renders 7 day columns × N rows of 30-min slots with Jira / Clockify
 /// blocks drawn as absolutely-positioned cards on each day's Canvas.
-/// Supports drag-to-create on any day; in jira-clockify combined mode
-/// each day is split vertically (Jira left / Clockify right).
+///
+/// Pointer interactions on every block (chosen by Y at press time):
+///   - top 5 px       → resize from top  (changes start + duration)
+///   - bottom 5 px    → resize from bottom (duration only)
+///   - middle         → drag-to-move (X+Y, cross-day OK) or click-to-edit
+/// All three end at <see cref="EmitChange"/> which clamps and fires
+/// <see cref="MoveJiraRequested"/> / <see cref="MoveClockifyRequested"/>.
+///
+/// Each block has a small duplicate button in the top-right that shows
+/// on hover and emits <see cref="DuplicateJiraRequested"/> /
+/// <see cref="DuplicateClockifyRequested"/>.
 /// </summary>
 public sealed partial class WeekCalendarControl : UserControl
 {
@@ -27,6 +36,11 @@ public sealed partial class WeekCalendarControl : UserControl
     public event Action<long, long, long>? CreateClockifyRequested;
     public event Action<JiraWorklog>? EditJiraRequested;
     public event Action<ClockifyEntry>? EditClockifyRequested;
+    /// <summary>Fired after a drag-to-move or edge-resize on a Jira block.</summary>
+    public event Action<JiraWorklog /*entry*/, long /*newStartMs*/, int /*newDurationSec*/>? MoveJiraRequested;
+    public event Action<ClockifyEntry, long, int>? MoveClockifyRequested;
+    public event Action<JiraWorklog>? DuplicateJiraRequested;
+    public event Action<ClockifyEntry>? DuplicateClockifyRequested;
 
     public AppSettings? Settings { get; set; }
     public JiraWorklogStore? JiraStore { get; set; }
@@ -41,6 +55,7 @@ public sealed partial class WeekCalendarControl : UserControl
     private const double HourColWidth = 64;
     private const double HeaderRowHeight = 26;
     private const double TotalsRowHeight = 24;
+    private const double EdgePx = 5;       // top/bottom resize hot-zone
 
     private readonly List<Canvas> _dayCanvases = new();
     private readonly List<Border> _totalsCells = new();
@@ -66,12 +81,10 @@ public sealed partial class WeekCalendarControl : UserControl
         _totalsCells.Clear();
         _dragOverlays.Clear();
 
-        // Columns: 0 = hour labels, 1..7 = day columns
         RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(HourColWidth) });
         for (int i = 0; i < 7; i++)
             RootGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-        // Rows: 0 = header, 1 = totals, 2 = body
         RootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(HeaderRowHeight) });
         RootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TotalsRowHeight) });
         RootGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(SlotsPerDay * RowHeight) });
@@ -105,15 +118,18 @@ public sealed partial class WeekCalendarControl : UserControl
         for (int i = 0; i < 7; i++)
         {
             var dayDate = WeekStart.AddDays(i);
+            bool isToday = dayDate.Date == DateTime.Today;
+            // Today gets a stronger highlight tint in the header.
+            var headerBg = isToday ? AccentBrush(0.22) : NeutralBrush(0.06);
             var header = new Border
             {
-                Background = NeutralBrush(0.06),
+                Background = headerBg,
                 BorderBrush = NeutralBrush(0.16),
                 BorderThickness = new Thickness(1),
                 Child = new TextBlock
                 {
                     Text = FormatDayHeader(i, dayDate),
-                    FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                    FontWeight = isToday ? Microsoft.UI.Text.FontWeights.Bold : Microsoft.UI.Text.FontWeights.SemiBold,
                     FontSize = 12,
                     HorizontalAlignment = HorizontalAlignment.Center,
                     VerticalAlignment = VerticalAlignment.Center
@@ -166,12 +182,23 @@ public sealed partial class WeekCalendarControl : UserControl
     {
         for (int day = 0; day < 7; day++)
         {
+            var dayDate = WeekStart.AddDays(day);
+            bool isToday = dayDate.Date == DateTime.Today;
+
             var canvas = new Canvas
             {
-                Background = NeutralBrush(0.0),
+                Background = new SolidColorBrush(Colors.Transparent),
                 Height = SlotsPerDay * RowHeight,
                 HorizontalAlignment = HorizontalAlignment.Stretch
             };
+            // Today-column tint underneath everything.
+            if (isToday)
+            {
+                var tint = new Rectangle { Fill = AccentBrush(0.10), Height = SlotsPerDay * RowHeight };
+                Canvas.SetTop(tint, 0); Canvas.SetLeft(tint, 0);
+                canvas.Children.Add(tint);
+                canvas.SizeChanged += (s, e) => tint.Width = e.NewSize.Width;
+            }
             // Background slot stripes & borders.
             for (int slot = 0; slot < SlotsPerDay; slot++)
             {
@@ -183,7 +210,6 @@ public sealed partial class WeekCalendarControl : UserControl
                     Height = RowHeight,
                     HorizontalAlignment = HorizontalAlignment.Stretch
                 };
-                // We don't know width until layout; bind via SizeChanged.
                 Canvas.SetTop(row, slot * RowHeight);
                 Canvas.SetLeft(row, 0);
                 canvas.Children.Add(row);
@@ -202,7 +228,6 @@ public sealed partial class WeekCalendarControl : UserControl
             canvas.Children.Add(drag);
             _dragOverlays[canvas] = drag;
 
-            // Combined-mode vertical divider.
             if (IsCombined)
             {
                 var div = new Rectangle
@@ -212,29 +237,19 @@ public sealed partial class WeekCalendarControl : UserControl
                     Height = SlotsPerDay * RowHeight
                 };
                 Canvas.SetTop(div, 0);
-                Canvas.SetLeft(div, 0); // updated in SizeChanged
+                Canvas.SetLeft(div, 0);
                 Canvas.SetZIndex(div, 5);
                 canvas.Children.Add(div);
                 canvas.SizeChanged += (s, e) => Canvas.SetLeft(div, e.NewSize.Width / 2 - 0.5);
             }
 
-            // Resize the background row rectangles when width changes.
             canvas.SizeChanged += (s, e) =>
             {
-                foreach (var child in canvas.Children)
-                {
-                    if (child is Rectangle rc && rc.Height == RowHeight && rc.Width == 0)
-                    {
-                        // (these are the slot stripes — set width to canvas.)
-                    }
-                }
-                // simpler: any Rectangle whose Stroke is the slot-stripe stroke gets full width.
                 foreach (var child in canvas.Children)
                 {
                     if (child is Rectangle r && r.Height == RowHeight && r != drag)
                         r.Width = e.NewSize.Width;
                 }
-                // Reposition entry blocks (they cache their width fraction in Tag).
                 LayoutEntryBlocks(canvas, e.NewSize.Width);
             };
 
@@ -259,14 +274,14 @@ public sealed partial class WeekCalendarControl : UserControl
             if (s <= 0)
             {
                 cell.Background = NeutralBrush(0.02);
-                cell.Child = MakeText("—", 11);
+                cell.Child = MakeText("-", 11);
             }
             else
             {
                 var target = (Settings?.DailyTargetHours ?? 8) * 3600;
                 cell.Background = s >= target
-                    ? new SolidColorBrush(Color.FromArgb(0x2E, 0x2E, 0xCC, 0x71)) // green
-                    : new SolidColorBrush(Color.FromArgb(0x2E, 0xF1, 0xC4, 0x0F)); // yellow
+                    ? new SolidColorBrush(Color.FromArgb(0x2E, 0x2E, 0xCC, 0x71))
+                    : new SolidColorBrush(Color.FromArgb(0x2E, 0xF1, 0xC4, 0x0F));
                 cell.Child = MakeText($"Logged: {FormatTotal(s)} {FormatDiff(s)}", 11);
             }
         }
@@ -281,7 +296,6 @@ public sealed partial class WeekCalendarControl : UserControl
 
     private int TotalSecForDay(int idx)
     {
-        // Prefer Jira when shown (mirrors the QML logic).
         int s = 0;
         if (ShowJira && JiraStore != null)
         {
@@ -350,7 +364,6 @@ public sealed partial class WeekCalendarControl : UserControl
             title = FormatTimeRange(c.StartedUnixMs, c.DurationSec);
             var desc = string.IsNullOrEmpty(c.Description) ? "(sin descripción)" : c.Description;
             subtitle = !string.IsNullOrEmpty(c.ProjectName) ? $"[{c.ProjectName}] {desc}" : desc;
-            // In pure clockify mode use the project's color if available.
             if (!IsCombined && !string.IsNullOrEmpty(c.ProjectColor) && TryParseHex(c.ProjectColor, out var col))
             {
                 fill = new SolidColorBrush(Color.FromArgb(0x8C, col.R, col.G, col.B));
@@ -385,6 +398,38 @@ public sealed partial class WeekCalendarControl : UserControl
             });
         }
 
+        // Wrap stack + duplicate button in a Grid so the button sits in the
+        // top-right corner without participating in the layout flow.
+        var inner = new Grid();
+        inner.Children.Add(stack);
+
+        var dupBtn = new Border
+        {
+            Width = 18,
+            Height = 18,
+            CornerRadius = new CornerRadius(3),
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top,
+            Margin = new Thickness(0, 1, 1, 0),
+            Background = new SolidColorBrush(Color.FromArgb(0x4D, 0x00, 0x00, 0x00)),
+            BorderBrush = new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF)),
+            BorderThickness = new Thickness(1),
+            Opacity = 0,
+            IsHitTestVisible = false,
+            Child = new TextBlock
+            {
+                // Segoe MDL2 Assets glyph U+E8C8 (Copy).
+                FontFamily = new FontFamily("Segoe MDL2 Assets"),
+                Text = "",
+                FontSize = 10,
+                Foreground = new SolidColorBrush(Colors.White),
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+        Canvas.SetZIndex(dupBtn, 10);
+        inner.Children.Add(dupBtn);
+
         var card = new Border
         {
             Background = fill,
@@ -392,26 +437,57 @@ public sealed partial class WeekCalendarControl : UserControl
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3),
             Padding = new Thickness(3),
-            Child = stack
+            Child = inner
         };
-        // Tag holds metadata used at layout: side (jira/clockify), startedMs, durationSec, entry.
-        card.Tag = new BlockTag(isJira, startedMs, durSec, entry);
+        var tag = new BlockTag(isJira, startedMs, durSec, entry);
+        card.Tag = tag;
 
-        // Click to edit.
-        card.PointerPressed += (s, e) =>
+        // Show / hide the duplicate button on hover. PointerEntered fires
+        // on the parent Border for the whole card area.
+        card.PointerEntered += (s, e) => { dupBtn.Opacity = 1; dupBtn.IsHitTestVisible = true; };
+        card.PointerExited += (s, e) =>
         {
-            e.Handled = true; // don't let canvas start a drag
+            if (tag.IsDragging) return;
+            dupBtn.Opacity = 0; dupBtn.IsHitTestVisible = false;
         };
-        card.Tapped += (s, e) =>
+        dupBtn.PointerPressed += (s, e) =>
         {
-            if (isJira) EditJiraRequested?.Invoke((JiraWorklog)entry);
-            else EditClockifyRequested?.Invoke((ClockifyEntry)entry);
+            e.Handled = true;
+            if (isJira) DuplicateJiraRequested?.Invoke((JiraWorklog)entry);
+            else DuplicateClockifyRequested?.Invoke((ClockifyEntry)entry);
         };
+
+        // Drag / resize / click. PointerPressed picks the mode by Y; the
+        // day-canvas's handlers do NOT trigger because the Border swallows
+        // the event before bubbling.
+        card.PointerPressed += (s, e) => OnBlockPressed(card, tag, e);
+        card.PointerMoved += (s, e) => OnBlockMoved(card, tag, e);
+        card.PointerReleased += (s, e) => OnBlockReleased(card, tag, e);
+        card.PointerCaptureLost += (s, e) => ResetBlock(card, tag);
 
         return card;
     }
 
-    private record BlockTag(bool IsJira, long StartedMs, int DurationSec, object Entry);
+    /// <summary>Per-block interaction state.</summary>
+    private sealed class BlockTag
+    {
+        public bool IsJira;
+        public long StartedMs;
+        public int DurationSec;
+        public object Entry;
+        // Geometry at press time, used to compute deltas.
+        public double OrigLeft;
+        public double OrigTop;
+        public double OrigWidth;
+        public double OrigHeight;
+        public Point PressInParent;     // pointer pos in the parent Canvas
+        // 0 = idle, 1 = move, 2 = resize-top, 3 = resize-bottom
+        public int Mode;
+        public bool Dragged;
+        public bool IsDragging => Mode != 0;
+        public BlockTag(bool isJira, long startedMs, int durationSec, object entry)
+        { IsJira = isJira; StartedMs = startedMs; DurationSec = durationSec; Entry = entry; }
+    }
 
     private void LayoutEntryBlocks(Canvas canvas, double width)
     {
@@ -420,6 +496,7 @@ public sealed partial class WeekCalendarControl : UserControl
         foreach (var child in canvas.Children)
         {
             if (child is not Border b || b.Tag is not BlockTag t) continue;
+            if (t.IsDragging) continue;   // don't yank a block out from under the cursor
             int slotsTop = SlotOfMs(t.StartedMs, day);
             int slotsLen = Math.Max(1, (int)Math.Round(t.DurationSec / 1800.0));
             double y = slotsTop * RowHeight;
@@ -438,7 +515,156 @@ public sealed partial class WeekCalendarControl : UserControl
         }
     }
 
-    // -------- Drag-to-create -------------------------------------------------
+    // ---- Block interaction ------------------------------------------------
+
+    private void OnBlockPressed(Border card, BlockTag tag, PointerRoutedEventArgs e)
+    {
+        var pt = e.GetCurrentPoint(card);
+        if (!pt.Properties.IsLeftButtonPressed) return;
+
+        var canvas = card.Parent as Canvas;
+        if (canvas == null) return;
+
+        tag.OrigLeft = Canvas.GetLeft(card);
+        tag.OrigTop = Canvas.GetTop(card);
+        tag.OrigWidth = card.ActualWidth;
+        tag.OrigHeight = card.ActualHeight;
+        tag.PressInParent = card.TransformToVisual(canvas).TransformPoint(pt.Position);
+        tag.Dragged = false;
+
+        if (pt.Position.Y < EdgePx) tag.Mode = 2;
+        else if (pt.Position.Y > card.ActualHeight - EdgePx) tag.Mode = 3;
+        else tag.Mode = 1;
+
+        if (tag.Mode == 1)
+        {
+            // Float the block AND its day-column above siblings so a
+            // cross-day drag isn't visually clipped by the next column.
+            Canvas.SetZIndex(card, 999);
+            Canvas.SetZIndex(canvas, 999);
+        }
+        card.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void OnBlockMoved(Border card, BlockTag tag, PointerRoutedEventArgs e)
+    {
+        if (tag.Mode == 0) return;
+        var canvas = card.Parent as Canvas;
+        if (canvas == null) return;
+        var pos = card.TransformToVisual(canvas).TransformPoint(e.GetCurrentPoint(card).Position);
+        double dx = pos.X - tag.PressInParent.X;
+        double dy = pos.Y - tag.PressInParent.Y;
+
+        if (tag.Mode == 1)
+        {
+            if (!tag.Dragged && Math.Abs(dx) < 4 && Math.Abs(dy) < 4) return;
+            tag.Dragged = true;
+            // Snap to whole cells (rowHeight rows × columnWidth columns).
+            double colW = canvas.ActualWidth;
+            double snappedDx = colW > 0 ? Math.Round(dx / colW) * colW : 0;
+            double snappedDy = Math.Round(dy / RowHeight) * RowHeight;
+            Canvas.SetLeft(card, tag.OrigLeft + snappedDx);
+            Canvas.SetTop(card, tag.OrigTop + snappedDy);
+        }
+        else if (tag.Mode == 2)
+        {
+            if (Math.Abs(dy) > 2) tag.Dragged = true;
+            double stepY = Math.Round(dy / RowHeight) * RowHeight;
+            double newY = tag.OrigTop + stepY;
+            double newH = tag.OrigHeight - stepY;
+            if (newY < 0) { newH += newY; newY = 0; }
+            if (newH < RowHeight) { newH = RowHeight; newY = tag.OrigTop + tag.OrigHeight - RowHeight; }
+            Canvas.SetTop(card, newY);
+            card.Height = newH;
+        }
+        else if (tag.Mode == 3)
+        {
+            if (Math.Abs(dy) > 2) tag.Dragged = true;
+            double stepDH = Math.Round(dy / RowHeight) * RowHeight;
+            double newH = tag.OrigHeight + stepDH;
+            if (newH < RowHeight) newH = RowHeight;
+            double maxH = Math.Max(RowHeight, canvas.ActualHeight - Canvas.GetTop(card));
+            if (newH > maxH) newH = maxH;
+            card.Height = newH;
+        }
+    }
+
+    private void OnBlockReleased(Border card, BlockTag tag, PointerRoutedEventArgs e)
+    {
+        var canvas = card.Parent as Canvas;
+        if (canvas == null) return;
+        card.ReleasePointerCapture(e.Pointer);
+        int mode = tag.Mode;
+        bool dragged = tag.Dragged;
+        tag.Mode = 0;
+        Canvas.SetZIndex(card, 0);
+        Canvas.SetZIndex(canvas, 0);
+
+        if (!dragged)
+        {
+            // Plain click → edit.
+            if (tag.IsJira) EditJiraRequested?.Invoke((JiraWorklog)tag.Entry);
+            else EditClockifyRequested?.Invoke((ClockifyEntry)tag.Entry);
+            return;
+        }
+
+        double dx = Canvas.GetLeft(card) - tag.OrigLeft;
+        double dy = Canvas.GetTop(card) - tag.OrigTop;
+        double dh = card.ActualHeight - tag.OrigHeight;
+        double colW = canvas.ActualWidth;
+        if (mode == 1)
+        {
+            int days = colW > 0 ? (int)Math.Round(dx / colW) : 0;
+            int slots = (int)Math.Round(dy / RowHeight);
+            if (days == 0 && slots == 0) { Refresh(); return; }
+            long newStart = tag.StartedMs + days * 86400000L + slots * 30 * 60_000L;
+            EmitChange(tag, newStart, tag.DurationSec);
+        }
+        else if (mode == 2)
+        {
+            int slots = (int)Math.Round(dy / RowHeight);
+            if (slots == 0) { Refresh(); return; }
+            long newStart = tag.StartedMs + slots * 30 * 60_000L;
+            int newDur = tag.DurationSec - slots * 1800;
+            EmitChange(tag, newStart, newDur);
+        }
+        else if (mode == 3)
+        {
+            int slots = (int)Math.Round(dh / RowHeight);
+            if (slots == 0) { Refresh(); return; }
+            int newDur = tag.DurationSec + slots * 1800;
+            EmitChange(tag, tag.StartedMs, newDur);
+        }
+    }
+
+    private void ResetBlock(Border card, BlockTag tag)
+    {
+        if (tag.Mode == 0) return;
+        tag.Mode = 0;
+        if (card.Parent is Canvas cv) Canvas.SetZIndex(cv, 0);
+        Canvas.SetZIndex(card, 0);
+        Refresh();
+    }
+
+    /// <summary>
+    /// Single exit point for move + edge-resize gestures. Clamps the new
+    /// (start, duration) to the visible week and enforces a 30-min floor.
+    /// </summary>
+    private void EmitChange(BlockTag tag, long newStartMs, int newDurationSec)
+    {
+        long wsMs = ToMs(WeekStart);
+        long weMs = ToMs(WeekStart.AddDays(7));
+        long durMs = newDurationSec * 1000L;
+        if (newStartMs < wsMs) newStartMs = wsMs;
+        if (newStartMs + durMs > weMs) newStartMs = weMs - durMs;
+        if (newDurationSec < 1800) newDurationSec = 1800;
+        if (newStartMs == tag.StartedMs && newDurationSec == tag.DurationSec) { Refresh(); return; }
+        if (tag.IsJira) MoveJiraRequested?.Invoke((JiraWorklog)tag.Entry, newStartMs, newDurationSec);
+        else MoveClockifyRequested?.Invoke((ClockifyEntry)tag.Entry, newStartMs, newDurationSec);
+    }
+
+    // ---- Day-canvas drag-to-create ----------------------------------------
 
     private record DragState(double PressY, bool PressLeft);
     private readonly Dictionary<Canvas, DragState> _drag = new();
@@ -447,7 +673,9 @@ public sealed partial class WeekCalendarControl : UserControl
     {
         var pt = e.GetCurrentPoint(canvas);
         if (!pt.Properties.IsLeftButtonPressed) return;
-        if (e.OriginalSource is FrameworkElement fe && fe.Parent is Border) return; // clicked an entry
+        // Don't start a drag if the press originated on a block — the
+        // block's handler already set e.Handled and stole the pointer.
+        if (e.Handled) return;
         canvas.CapturePointer(e.Pointer);
         bool left = !IsCombined || pt.Position.X < canvas.ActualWidth / 2;
         _drag[canvas] = new DragState(pt.Position.Y, left);
@@ -513,7 +741,7 @@ public sealed partial class WeekCalendarControl : UserControl
         return Math.Clamp(s, 0, SlotsPerDay);
     }
 
-    // -------- Helpers --------------------------------------------------------
+    // ---- Helpers ----------------------------------------------------------
 
     private long ToMsAtSlot(DateTime day, int slot)
     {
@@ -536,7 +764,6 @@ public sealed partial class WeekCalendarControl : UserControl
     {
         var names = new[] { "Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb" };
         var months = new[] { "Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic" };
-        // Use the actual day-of-week of d so a Monday-start week labels correctly.
         return $"{names[(int)d.DayOfWeek]} {d.Day}/{months[d.Month - 1]}";
     }
 
@@ -548,7 +775,7 @@ public sealed partial class WeekCalendarControl : UserControl
 
     private static string FormatTotal(int sec)
     {
-        if (sec <= 0) return "—";
+        if (sec <= 0) return "-";
         int h = sec / 3600, m = (sec % 3600) / 60;
         if (h > 0 && m > 0) return $"{h}h {m}m";
         if (h > 0) return $"{h}h";
