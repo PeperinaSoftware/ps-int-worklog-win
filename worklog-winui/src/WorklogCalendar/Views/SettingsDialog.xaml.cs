@@ -24,6 +24,8 @@ public sealed partial class SettingsDialog : ContentDialog
         WinWidth.Value = _s.WindowWidth;
         WinHeight.Value = _s.WindowHeight;
         AlwaysOnTop.IsChecked = _s.AlwaysOnTop;
+        ModalW.Value = _s.ModalWidth;
+        ModalH.Value = _s.ModalHeight;
 
         ShowGauges.IsChecked = _s.ShowSprintGauges;
         SprintStrategyChooser.SelectedIndex = _s.SprintStrategy switch
@@ -67,6 +69,8 @@ public sealed partial class SettingsDialog : ContentDialog
         _s.WindowWidth = (int)WinWidth.Value;
         _s.WindowHeight = (int)WinHeight.Value;
         _s.AlwaysOnTop = AlwaysOnTop.IsChecked == true;
+        _s.ModalWidth = (int)ModalW.Value;
+        _s.ModalHeight = (int)ModalH.Value;
 
         _s.ShowSprintGauges = ShowGauges.IsChecked == true;
         _s.SprintStrategy = SprintStrategyChooser.SelectedIndex switch

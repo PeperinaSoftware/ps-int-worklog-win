@@ -33,6 +33,10 @@ public sealed partial class ClockifyEditDialog : ContentDialog
         EditingEntry = existing;
         Title = IsEdit ? "Editar entrada Clockify" : "Nueva entrada Clockify";
 
+        const int margin = 80;
+        BodyGrid.Width = Math.Clamp(settings.ModalWidth, 360, Math.Max(360, settings.WindowWidth - margin));
+        BodyGrid.Height = Math.Clamp(settings.ModalHeight, 280, Math.Max(280, settings.WindowHeight - margin));
+
         DayPicker.Date = new DateTimeOffset(start.Date);
         StartPicker.Time = start.TimeOfDay;
         EndPicker.Time = end.TimeOfDay;

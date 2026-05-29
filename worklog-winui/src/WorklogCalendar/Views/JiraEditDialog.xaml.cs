@@ -23,13 +23,16 @@ public sealed partial class JiraEditDialog : ContentDialog
     /// <summary>True if the dialog completed a save/delete and the caller should refresh.</summary>
     public bool Mutated { get; private set; }
 
-    public JiraEditDialog(JiraWorklogStore store, DateTime start, DateTime end, JiraWorklog? existing)
+    public JiraEditDialog(JiraWorklogStore store, AppSettings settings, DateTime start, DateTime end, JiraWorklog? existing)
     {
         this.InitializeComponent();
         _store = store;
         IsEdit = existing != null;
         EditingEntry = existing;
         Title = IsEdit ? "Editar worklog Jira" : "Nuevo worklog Jira";
+        // Apply configurable modal size, clamped to the window so the
+        // dialog never overflows on small screens.
+        ApplyModalSize(settings);
 
         DayPicker.Date = new DateTimeOffset(start.Date);
         StartPicker.Time = start.TimeOfDay;
@@ -152,5 +155,14 @@ public sealed partial class JiraEditDialog : ContentDialog
         if (h > 0 && m > 0) return $"{h}h {m}m";
         if (h > 0) return $"{h}h";
         return $"{m}m";
+    }
+
+    private void ApplyModalSize(AppSettings s)
+    {
+        // Clamp to the configured window size − margin so the dialog
+        // never overflows on small screens.
+        const int margin = 80;
+        BodyGrid.Width = Math.Clamp(s.ModalWidth, 360, Math.Max(360, s.WindowWidth - margin));
+        BodyGrid.Height = Math.Clamp(s.ModalHeight, 280, Math.Max(280, s.WindowHeight - margin));
     }
 }

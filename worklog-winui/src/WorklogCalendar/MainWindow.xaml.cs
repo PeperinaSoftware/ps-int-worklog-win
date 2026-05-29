@@ -275,7 +275,7 @@ public sealed partial class MainWindow : Window
     {
         var s = DateTimeOffset.FromUnixTimeMilliseconds(startMs).LocalDateTime;
         var en = DateTimeOffset.FromUnixTimeMilliseconds(endMs).LocalDateTime;
-        var dlg = new JiraEditDialog(_jira, s, en, existing) { XamlRoot = Content.XamlRoot };
+        var dlg = new JiraEditDialog(_jira, _settings, s, en, existing) { XamlRoot = Content.XamlRoot };
         await dlg.ShowAsync();
         if (dlg.Mutated) await RefreshAsync();
     }

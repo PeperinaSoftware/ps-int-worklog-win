@@ -119,8 +119,12 @@ public sealed partial class WeekCalendarControl : UserControl
         {
             var dayDate = WeekStart.AddDays(i);
             bool isToday = dayDate.Date == DateTime.Today;
-            // Today gets a stronger highlight tint in the header.
-            var headerBg = isToday ? AccentBrush(0.22) : NeutralBrush(0.06);
+            bool isWeekend = dayDate.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
+            // Today wins; weekend gets a slightly darker neutral; weekdays neutral.
+            var headerBg = isToday
+                ? AccentBrush(0.22)
+                : (isWeekend ? new SolidColorBrush(Color.FromArgb(0x3D, 0x00, 0x00, 0x00))
+                             : NeutralBrush(0.06));
             var header = new Border
             {
                 Background = headerBg,
@@ -184,14 +188,31 @@ public sealed partial class WeekCalendarControl : UserControl
         {
             var dayDate = WeekStart.AddDays(day);
             bool isToday = dayDate.Date == DateTime.Today;
+            bool isWeekend = dayDate.DayOfWeek is DayOfWeek.Saturday or DayOfWeek.Sunday;
 
             var canvas = new Canvas
             {
                 Background = new SolidColorBrush(Colors.Transparent),
                 Height = SlotsPerDay * RowHeight,
-                HorizontalAlignment = HorizontalAlignment.Stretch
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                // Keep the parent ScrollViewer from stealing touch / pen
+                // gestures that start inside a day column (equivalent of
+                // QML's preventStealing).
+                ManipulationMode = ManipulationModes.None
             };
-            // Today-column tint underneath everything.
+            // Weekend tint sits at the very bottom of the z-stack.
+            if (isWeekend)
+            {
+                var wknd = new Rectangle
+                {
+                    Fill = new SolidColorBrush(Color.FromArgb(0x2E, 0x00, 0x00, 0x00)), // ~0.18 black
+                    Height = SlotsPerDay * RowHeight
+                };
+                Canvas.SetTop(wknd, 0); Canvas.SetLeft(wknd, 0);
+                canvas.Children.Add(wknd);
+                canvas.SizeChanged += (s, e) => wknd.Width = e.NewSize.Width;
+            }
+            // Today-column tint underneath everything else (stacks over weekend).
             if (isToday)
             {
                 var tint = new Rectangle { Fill = AccentBrush(0.10), Height = SlotsPerDay * RowHeight };
@@ -437,7 +458,10 @@ public sealed partial class WeekCalendarControl : UserControl
             BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(3),
             Padding = new Thickness(3),
-            Child = inner
+            Child = inner,
+            // Don't let the parent ScrollViewer treat a press-and-move on
+            // this block as a scroll/pan gesture (preventStealing in QML).
+            ManipulationMode = ManipulationModes.None
         };
         var tag = new BlockTag(isJira, startedMs, durSec, entry);
         card.Tag = tag;
@@ -564,8 +588,14 @@ public sealed partial class WeekCalendarControl : UserControl
             double colW = canvas.ActualWidth;
             double snappedDx = colW > 0 ? Math.Round(dx / colW) * colW : 0;
             double snappedDy = Math.Round(dy / RowHeight) * RowHeight;
+            // Vertical clamp: keep the block inside the visible hours, so
+            // a drag in 9h mode can't visually spill past 18:00. EmitChange
+            // also clamps on release; this is for visual feedback.
+            double newY = tag.OrigTop + snappedDy;
+            double maxY = Math.Max(0, canvas.ActualHeight - card.ActualHeight);
+            newY = Math.Max(0, Math.Min(maxY, newY));
             Canvas.SetLeft(card, tag.OrigLeft + snappedDx);
-            Canvas.SetTop(card, tag.OrigTop + snappedDy);
+            Canvas.SetTop(card, newY);
         }
         else if (tag.Mode == 2)
         {

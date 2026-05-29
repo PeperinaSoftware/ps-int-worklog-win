@@ -57,6 +57,20 @@
                                   Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" />
                     </Grid>
 
+                    <!-- Modal size (Jira / Clockify edit dialogs). -->
+                    <Grid ColumnSpacing="8" Margin="0,8,0,0">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <NumberBox x:Name="ModalW" Header="Ancho modal (px)"
+                                   Minimum="360" Maximum="2000"
+                                   SpinButtonPlacementMode="Inline" Grid.Column="0" />
+                        <NumberBox x:Name="ModalH" Header="Alto modal (px)"
+                                   Minimum="280" Maximum="1500"
+                                   SpinButtonPlacementMode="Inline" Grid.Column="1" />
+                    </Grid>
+
                     <CheckBox x:Name="ShowGauges" Content="Mostrar gauges Sprint + Horas (solo modo 9h, fuente Jira o Jira/Clockify)"
                               Margin="0,8,0,0" />
 

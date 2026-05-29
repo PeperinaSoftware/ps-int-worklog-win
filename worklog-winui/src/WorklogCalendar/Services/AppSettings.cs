@@ -43,6 +43,12 @@ public sealed class AppSettings : INotifyPropertyChanged
     /// <summary>Week start day. 0 = Sunday, 1 = Monday. Default 0 to match the plasmoid.</summary>
     public int FirstDayOfWeek { get; set; } = 0;
 
+    // -------- Modal size --------
+    /// <summary>Width of the Jira / Clockify edit dialogs (px). Clamped to window − margin.</summary>
+    public int ModalWidth { get; set; } = 720;
+    /// <summary>Height of the Jira / Clockify edit dialogs (px). Clamped to window − margin.</summary>
+    public int ModalHeight { get; set; } = 520;
+
     // -------- Sprint gauges (Jira / Jira-Clockify, 9h mode only) --------
     /// <summary>Render the two ring gauges below the calendar.</summary>
     public bool ShowSprintGauges { get; set; } = true;
