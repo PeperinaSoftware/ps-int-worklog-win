@@ -90,7 +90,10 @@ public sealed partial class RingGauge : UserControl
             From = 0,
             To = Math.Max(0, Math.Min(100, Value)),
             Duration = TimeSpan.FromMilliseconds(1500),
-            EasingFunction = new QuarticEase { EasingMode = EasingMode.EaseOut }
+            EasingFunction = new QuarticEase { EasingMode = EasingMode.EaseOut },
+            // Required for animating non-built-in DPs in WinUI 3 —
+            // otherwise the animation runs but DisplayValue never moves.
+            EnableDependentAnimation = true
         };
         Storyboard.SetTarget(anim, this);
         Storyboard.SetTargetProperty(anim, "DisplayValue");
@@ -132,16 +135,38 @@ public sealed partial class RingGauge : UserControl
         int pause = Intermittent ? 1000 : 3000;
         int colorMs = Intermittent ? 1000 : 1500;
 
-        var toPale = new ColorAnimation { From = BaseColor, To = PaleColor, Duration = TimeSpan.FromMilliseconds(colorMs), BeginTime = TimeSpan.FromMilliseconds(pause) };
-        Storyboard.SetTarget(toPale, this);
-        Storyboard.SetTargetProperty(toPale, "AnimatedColor");
-        var toBase = new ColorAnimation { From = PaleColor, To = BaseColor, Duration = TimeSpan.FromMilliseconds(colorMs), BeginTime = TimeSpan.FromMilliseconds(pause + colorMs) };
-        Storyboard.SetTarget(toBase, this);
-        Storyboard.SetTargetProperty(toBase, "AnimatedColor");
+        // WinUI 3 forbids two animations on the same property of the same
+        // element inside one Storyboard — use a single keyframe animation
+        // with three stops instead (hold → fade out → fade in).
+        var anim = new ColorAnimationUsingKeyFrames
+        {
+            EnableDependentAnimation = true
+        };
+        anim.KeyFrames.Add(new DiscreteColorKeyFrame
+        {
+            KeyTime = KeyTime.FromTimeSpan(TimeSpan.Zero),
+            Value = BaseColor
+        });
+        anim.KeyFrames.Add(new LinearColorKeyFrame
+        {
+            KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(pause)),
+            Value = BaseColor
+        });
+        anim.KeyFrames.Add(new LinearColorKeyFrame
+        {
+            KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(pause + colorMs)),
+            Value = PaleColor
+        });
+        anim.KeyFrames.Add(new LinearColorKeyFrame
+        {
+            KeyTime = KeyTime.FromTimeSpan(TimeSpan.FromMilliseconds(pause + colorMs * 2)),
+            Value = BaseColor
+        });
+        Storyboard.SetTarget(anim, this);
+        Storyboard.SetTargetProperty(anim, "AnimatedColor");
 
         _fadeSb = new Storyboard { RepeatBehavior = RepeatBehavior.Forever };
-        _fadeSb.Children.Add(toPale);
-        _fadeSb.Children.Add(toBase);
+        _fadeSb.Children.Add(anim);
         _fadeSb.Begin();
     }
 
