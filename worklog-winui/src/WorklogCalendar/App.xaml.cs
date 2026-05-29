@@ -73,19 +73,18 @@ public partial class App : Application
             ToolTipText = "Worklog Calendar"
         };
 
-        // H.NotifyIcon's IconSource is a Microsoft.UI.Xaml.Controls.IconSource
-        // (not an ImageSource). BitmapIconSource with a file:// URI works for
-        // unpackaged apps; the .ico bundle is in the install dir.
+        // H.NotifyIcon.WinUI's IconSource is a Microsoft.UI.Xaml.Media.ImageSource
+        // (not a Controls.IconSource as the name suggests). BitmapImage with a
+        // file:// URI works for unpackaged apps; WinUI 3's BitmapImage decodes
+        // .ico via WIC so the multi-size bundle is used as-is.
         try
         {
             var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
             if (File.Exists(icoPath))
             {
-                _tray.IconSource = new BitmapIconSource
-                {
-                    UriSource = new Uri(icoPath),
-                    ShowAsMonochrome = false
-                };
+                var bmp = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage();
+                bmp.UriSource = new Uri(icoPath, UriKind.Absolute);
+                _tray.IconSource = bmp;
             }
         }
         catch (System.Exception ex)
