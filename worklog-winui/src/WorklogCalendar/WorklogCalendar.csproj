@@ -18,11 +18,14 @@
     <SelfContained>true</SelfContained>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <PublishProfile>win-$(Platform).pubxml</PublishProfile>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.6.241114003" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
+    <!-- System tray (notification area) icon support for WinUI 3 desktop. -->
+    <PackageReference Include="H.NotifyIcon.WinUI" Version="2.1.4" />
   </ItemGroup>
 
   <ItemGroup>

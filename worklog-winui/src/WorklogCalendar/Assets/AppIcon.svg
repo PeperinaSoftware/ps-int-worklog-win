@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Worklog Calendar app icon: clock face with flames coming off the top.
+  Designed to read clearly at 16x16 (so big strokes, high contrast).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <!-- Flames behind the clock -->
+  <defs>
+    <radialGradient id="flame" cx="0.5" cy="0.85" r="0.7">
+      <stop offset="0%"  stop-color="#FFEB3B" stop-opacity="1"/>
+      <stop offset="55%" stop-color="#FF9800" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#E53935" stop-opacity="1"/>
+    </radialGradient>
+    <linearGradient id="dial" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#37474F"/>
+      <stop offset="100%" stop-color="#1B262C"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Big flame plume above clock -->
+  <path fill="url(#flame)" d="
+    M 128 18
+    C 110 50 92 56 100 96
+    C 80 80 68 92 80 116
+    C 64 108 56 122 72 142
+    C 60 136 56 148 70 158
+    L 186 158
+    C 200 148 196 136 184 142
+    C 200 122 192 108 176 116
+    C 188 92 176 80 156 96
+    C 164 56 146 50 128 18 Z" />
+
+  <!-- Inner flame highlight -->
+  <path fill="#FFF59D" opacity="0.85" d="
+    M 128 60
+    C 118 80 110 90 116 116
+    C 102 108 102 120 110 138
+    L 146 138
+    C 154 120 154 108 140 116
+    C 146 90 138 80 128 60 Z" />
+
+  <!-- Clock outer rim -->
+  <circle cx="128" cy="160" r="84" fill="#0F1419"/>
+  <circle cx="128" cy="160" r="80" fill="url(#dial)" stroke="#FFB74D" stroke-width="4"/>
+
+  <!-- Hour ticks (12, 3, 6, 9) -->
+  <g fill="#FFD54F">
+    <rect x="124" y="86"  width="8" height="14" rx="2"/>
+    <rect x="124" y="220" width="8" height="14" rx="2"/>
+    <rect x="50"  y="156" width="14" height="8" rx="2"/>
+    <rect x="192" y="156" width="14" height="8" rx="2"/>
+  </g>
+  <!-- Minor ticks -->
+  <g fill="#90A4AE">
+    <rect x="125" y="98"  width="6" height="8" rx="1.5" transform="rotate(30 128 160)"/>
+    <rect x="125" y="98"  width="6" height="8" rx="1.5" transform="rotate(60 128 160)"/>
+    <rect x="125" y="98"  width="6" height="8" rx="1.5" transform="rotate(120 128 160)"/>
+    <rect x="125" y="98"  width="6" height="8" rx="1.5" transform="rotate(150 128 160)"/>
+    <rect x="125" y="98"  width="6" height="8" rx="1.5" transform="rotate(210 128 160)"/>
+    <rect x="125" y="98"  width="6" height="8" rx="1.5" transform="rotate(240 128 160)"/>
+    <rect x="125" y="98"  width="6" height="8" rx="1.5" transform="rotate(300 128 160)"/>
+    <rect x="125" y="98"  width="6" height="8" rx="1.5" transform="rotate(330 128 160)"/>
+  </g>
+
+  <!-- Hour hand (pointing to ~10) -->
+  <line x1="128" y1="160" x2="90" y2="124"
+        stroke="#FFFFFF" stroke-width="10" stroke-linecap="round"/>
+  <!-- Minute hand (pointing to ~2) -->
+  <line x1="128" y1="160" x2="172" y2="116"
+        stroke="#FFFFFF" stroke-width="6" stroke-linecap="round"/>
+  <!-- Center cap -->
+  <circle cx="128" cy="160" r="8" fill="#FF7043" stroke="#E53935" stroke-width="2"/>
+</svg>

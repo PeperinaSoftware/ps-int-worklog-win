@@ -5,7 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:controls="using:WorklogCalendar.Controls"
     Title="Worklog Calendar">
-    <Grid Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    <Grid Background="#1F1F1F" RequestedTheme="Dark">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" /> <!-- header -->
             <RowDefinition Height="Auto" /> <!-- status -->

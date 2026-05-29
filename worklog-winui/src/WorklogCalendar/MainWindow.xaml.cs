@@ -32,10 +32,11 @@ public sealed partial class MainWindow : Window
     public MainWindow()
     {
         this.InitializeComponent();
-        _settings = SettingsService.Load();
-        _jira = new JiraWorklogStore(_settings);
-        _clockify = new ClockifyStore(_settings);
-        _clockify.Init();
+        // Use the App-level singletons so the tray popup and the main
+        // window share the same fetched data.
+        _settings = App.Settings;
+        _jira = App.Jira ?? new JiraWorklogStore(_settings);
+        _clockify = App.Clockify ?? new ClockifyStore(_settings);
 
         Calendar.Settings = _settings;
         Calendar.JiraStore = _jira;
@@ -44,6 +45,7 @@ public sealed partial class MainWindow : Window
 
         Title = "Worklog Calendar";
         ApplyWindowGeometry();
+        ApplyDarkTitleBar();
 
         _weekStart = WeekStartOf(DateTime.Today);
         Calendar.WeekStart = _weekStart;
@@ -124,7 +126,48 @@ public sealed partial class MainWindow : Window
         await RefreshAsync();
     }
 
-    // -------- Window geometry & always-on-top -------------------------------
+    // -------- Window geometry, title bar -------------------------------
+
+    /// <summary>
+    /// Paint the system title bar (and its min/max/close buttons) dark to
+    /// match the rest of the UI. Uses AppWindowTitleBar customization
+    /// directly so it works without ExtendsContentIntoTitleBar.
+    /// </summary>
+    private void ApplyDarkTitleBar()
+    {
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var wid = Win32Interop.GetWindowIdFromWindow(hwnd);
+            var aw = AppWindow.GetFromWindowId(wid);
+            if (aw == null) return;
+            if (!AppWindowTitleBar.IsCustomizationSupported()) return;
+
+            var tb = aw.TitleBar;
+            var bg = Windows.UI.Color.FromArgb(0xFF, 0x1F, 0x1F, 0x1F);
+            var bgHover = Windows.UI.Color.FromArgb(0xFF, 0x33, 0x33, 0x33);
+            var bgPress = Windows.UI.Color.FromArgb(0xFF, 0x40, 0x40, 0x40);
+            var fg = Windows.UI.Color.FromArgb(0xFF, 0xEE, 0xEE, 0xEE);
+            var fgDim = Windows.UI.Color.FromArgb(0xFF, 0xAA, 0xAA, 0xAA);
+
+            tb.BackgroundColor = bg;
+            tb.InactiveBackgroundColor = bg;
+            tb.ForegroundColor = fg;
+            tb.InactiveForegroundColor = fgDim;
+            tb.ButtonBackgroundColor = bg;
+            tb.ButtonInactiveBackgroundColor = bg;
+            tb.ButtonForegroundColor = fg;
+            tb.ButtonInactiveForegroundColor = fgDim;
+            tb.ButtonHoverBackgroundColor = bgHover;
+            tb.ButtonHoverForegroundColor = fg;
+            tb.ButtonPressedBackgroundColor = bgPress;
+            tb.ButtonPressedForegroundColor = fg;
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("[TitleBar] dark theme failed: " + ex.Message);
+        }
+    }
 
     private void ApplyWindowGeometry()
     {
