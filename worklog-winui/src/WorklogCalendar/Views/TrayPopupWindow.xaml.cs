@@ -1,8 +1,10 @@
 using System;
 using Microsoft.UI;
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Windows.Graphics;
 using WinRT.Interop;
 using WorklogCalendar.Services;
@@ -10,23 +12,27 @@ using WorklogCalendar.Services;
 namespace WorklogCalendar.Views;
 
 /// <summary>
-/// Small frame-less window that appears anchored to the tray icon.
-/// Shows the Sprint + Horas ring gauges; clicking anywhere opens the
-/// main app window. Hides itself when it loses focus.
+/// Control-Center-style fly-out: frame-less window anchored to the
+/// bottom-right of the primary monitor's work area, Mica backdrop, with
+/// a slide-in + fade-in animation on first show. Clicking anywhere on
+/// the body raises <see cref="OpenMainRequested"/>; deactivation
+/// (clicking elsewhere) raises <see cref="HideRequested"/> so the
+/// owning App can dispose the window cleanly.
 /// </summary>
 public sealed partial class TrayPopupWindow : Window
 {
-    private const int PopupWidth = 460;
-    private const int PopupHeight = 320;
+    private const int PopupWidth = 420;
+    private const int PopupHeight = 360;
 
     public Action? OpenMainRequested;
+    public Action? HideRequested;
 
     public TrayPopupWindow(JiraWorklogStore jira)
     {
         this.InitializeComponent();
         Gauges.Store = jira;
 
-        // Frame-less, no taskbar entry, no titlebar buttons.
+        // Frame-less, no taskbar entry, no min/max buttons.
         var hwnd = WindowNative.GetWindowHandle(this);
         var wid = Win32Interop.GetWindowIdFromWindow(hwnd);
         var aw = AppWindow.GetFromWindowId(wid);
@@ -45,18 +51,42 @@ public sealed partial class TrayPopupWindow : Window
             aw.Title = "Worklog";
         }
 
-        // A click anywhere on the body opens the main window.
-        Root.PointerPressed += (s, e) => Hide(openMain: true);
+        // Mica backdrop — gives the Control-Center translucent blur look.
+        TrySetMicaBackdrop();
 
-        // Auto-hide when the window deactivates (user clicks elsewhere).
+        // Click on the body opens the main window.
+        Root.PointerPressed += (s, e) =>
+        {
+            OpenMainRequested?.Invoke();
+            HideRequested?.Invoke();
+        };
+
+        // Auto-hide when the user clicks somewhere else.
         this.Activated += (s, e) =>
         {
             if (e.WindowActivationState == WindowActivationState.Deactivated)
-                Hide(openMain: false);
+            {
+                HideRequested?.Invoke();
+            }
         };
     }
 
-    /// <summary>Position near the bottom-right corner (above the tray) and show.</summary>
+    private void TrySetMicaBackdrop()
+    {
+        if (MicaController.IsSupported())
+        {
+            try
+            {
+                this.SystemBackdrop = new MicaBackdrop { Kind = MicaKind.BaseAlt };
+                return;
+            }
+            catch { /* fall through to solid background */ }
+        }
+        // Mica unavailable (older Win11 build / VM) → solid dark fallback.
+        Root.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0xF2, 0x1F, 0x1F, 0x1F));
+    }
+
+    /// <summary>Position near the bottom-right (above the tray) and animate in.</summary>
     public void ShowNearTray()
     {
         var hwnd = WindowNative.GetWindowHandle(this);
@@ -64,26 +94,48 @@ public sealed partial class TrayPopupWindow : Window
         var aw = AppWindow.GetFromWindowId(wid);
         if (aw != null)
         {
-            // DisplayArea.Primary covers the primary monitor's working
-            // area (excludes the taskbar). Bottom-right is where the
-            // tray lives on default Win11 layouts.
             var da = DisplayArea.GetFromWindowId(wid, DisplayAreaFallback.Primary);
             var work = da.WorkArea;
-            int margin = 8;
+            const int margin = 12;
             int x = work.X + work.Width - PopupWidth - margin;
             int y = work.Y + work.Height - PopupHeight - margin;
-            aw.Move(new PointInt32(x, y));
+            aw.MoveAndResize(new RectInt32(x, y, PopupWidth, PopupHeight));
         }
+
         Gauges.StartFillAnimation();
         this.Activate();
+        AnimateSlideIn();
     }
 
-    public void Hide(bool openMain)
+    private void AnimateSlideIn()
     {
-        var hwnd = WindowNative.GetWindowHandle(this);
-        var wid = Win32Interop.GetWindowIdFromWindow(hwnd);
-        var aw = AppWindow.GetFromWindowId(wid);
-        aw?.Hide();
-        if (openMain) OpenMainRequested?.Invoke();
+        // Fade + slide from below — short and snappy, like the Win11
+        // Control Center.
+        Root.Opacity = 0;
+        RootTransform.TranslateY = 24;
+
+        var sb = new Storyboard();
+
+        var fade = new DoubleAnimation
+        {
+            From = 0, To = 1,
+            Duration = TimeSpan.FromMilliseconds(180),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(fade, Root);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        sb.Children.Add(fade);
+
+        var slide = new DoubleAnimation
+        {
+            From = 24, To = 0,
+            Duration = TimeSpan.FromMilliseconds(240),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        };
+        Storyboard.SetTarget(slide, RootTransform);
+        Storyboard.SetTargetProperty(slide, "TranslateY");
+        sb.Children.Add(slide);
+
+        sb.Begin();
     }
 }

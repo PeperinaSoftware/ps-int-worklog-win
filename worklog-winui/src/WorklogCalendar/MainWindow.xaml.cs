@@ -46,6 +46,7 @@ public sealed partial class MainWindow : Window
         Title = "Worklog Calendar";
         ApplyWindowGeometry();
         ApplyDarkTitleBar();
+        ApplyWindowIcon();
 
         _weekStart = WeekStartOf(DateTime.Today);
         Calendar.WeekStart = _weekStart;
@@ -166,6 +167,24 @@ public sealed partial class MainWindow : Window
         catch (System.Exception ex)
         {
             System.Diagnostics.Debug.WriteLine("[TitleBar] dark theme failed: " + ex.Message);
+        }
+    }
+
+    /// <summary>Set the .ico shown in the window's top-left corner, Alt-Tab and taskbar.</summary>
+    private void ApplyWindowIcon()
+    {
+        try
+        {
+            var hwnd = WindowNative.GetWindowHandle(this);
+            var wid = Win32Interop.GetWindowIdFromWindow(hwnd);
+            var aw = AppWindow.GetFromWindowId(wid);
+            if (aw == null) return;
+            var icoPath = System.IO.Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (System.IO.File.Exists(icoPath)) aw.SetIcon(icoPath);
+        }
+        catch (System.Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine("[Window] icon set failed: " + ex.Message);
         }
     }
 

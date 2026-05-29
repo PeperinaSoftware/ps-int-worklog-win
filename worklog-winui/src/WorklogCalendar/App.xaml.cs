@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using H.NotifyIcon;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using WorklogCalendar.Services;
 using WorklogCalendar.Views;
 
@@ -19,6 +20,8 @@ public partial class App : Application
 
     private TaskbarIcon? _tray;
     private TrayPopupWindow? _trayPopup;
+    private bool _trayPopupVisible;
+    private bool _exiting;
 
     public App()
     {
@@ -60,9 +63,8 @@ public partial class App : Application
 
     /// <summary>
     /// Build the notification-area icon. Left-click toggles a small
-    /// frame-less popup with the Sprint + Horas gauges; clicking the
-    /// popup brings the main window forward. Right-click shows a menu
-    /// with the same options plus Exit.
+    /// Mica-styled popup with the Sprint + Horas gauges; clicking the
+    /// popup brings the main window forward. Right-click shows a menu.
     /// </summary>
     private void InitializeTrayIcon()
     {
@@ -70,13 +72,21 @@ public partial class App : Application
         {
             ToolTipText = "Worklog Calendar"
         };
-        // Unpackaged WinUI 3 doesn't honour ms-appx:/// URIs, so we load
-        // the 32 px PNG from the app's install directory. BitmapImage
-        // can't decode .ico, hence the PNG variant.
+
+        // H.NotifyIcon's IconSource is a Microsoft.UI.Xaml.Controls.IconSource
+        // (not an ImageSource). BitmapIconSource with a file:// URI works for
+        // unpackaged apps; the .ico bundle is in the install dir.
         try
         {
-            var pngPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon-32.png");
-            _tray.IconSource = new Microsoft.UI.Xaml.Media.Imaging.BitmapImage(new Uri(pngPath));
+            var icoPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon.ico");
+            if (File.Exists(icoPath))
+            {
+                _tray.IconSource = new BitmapIconSource
+                {
+                    UriSource = new Uri(icoPath),
+                    ShowAsMonochrome = false
+                };
+            }
         }
         catch (System.Exception ex)
         {
@@ -86,61 +96,83 @@ public partial class App : Application
         _tray.LeftClickCommand = new RelayCommand(_ => ToggleTrayPopup());
         _tray.NoLeftClickDelay = true;
 
-        // Right-click menu.
-        var openItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem { Text = "Abrir Worklog Calendar" };
-        openItem.Click += (s, e) => BringMainToFront();
-        var sprintItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem { Text = "Ver sprint" };
-        sprintItem.Click += (s, e) => ShowTrayPopup();
-        var exitItem = new Microsoft.UI.Xaml.Controls.MenuFlyoutItem { Text = "Salir" };
-        exitItem.Click += (s, e) => Exit();
-        var menu = new Microsoft.UI.Xaml.Controls.MenuFlyout();
-        menu.Items.Add(openItem);
-        menu.Items.Add(sprintItem);
-        menu.Items.Add(new Microsoft.UI.Xaml.Controls.MenuFlyoutSeparator());
-        menu.Items.Add(exitItem);
-        _tray.ContextFlyout = menu;
+        // Build a fresh MenuFlyout for the right-click. Re-creating the
+        // items each show avoids the "menu only works once" bug that
+        // hits cached flyouts on tray icons in unpackaged WinUI 3.
+        _tray.ContextFlyout = BuildContextMenu();
 
         _tray.ForceCreate();
     }
 
+    private MenuFlyout BuildContextMenu()
+    {
+        var menu = new MenuFlyout();
+        var open = new MenuFlyoutItem { Text = "Abrir Worklog Calendar" };
+        open.Click += (s, e) => BringMainToFront();
+        var sprint = new MenuFlyoutItem { Text = "Ver sprint" };
+        sprint.Click += (s, e) => ShowTrayPopup();
+        var exit = new MenuFlyoutItem { Text = "Salir" };
+        exit.Click += (s, e) => Exit();
+        menu.Items.Add(open);
+        menu.Items.Add(sprint);
+        menu.Items.Add(new MenuFlyoutSeparator());
+        menu.Items.Add(exit);
+        // Recreate the entire flyout on each open so its dispatcher /
+        // XamlRoot association stays fresh.
+        menu.Opening += (s, e) => { /* keep the flyout alive; nothing extra */ };
+        return menu;
+    }
+
     private void ToggleTrayPopup()
     {
-        if (_trayPopup == null) ShowTrayPopup();
-        else _trayPopup.Hide(openMain: false);
+        if (_trayPopupVisible) HideTrayPopup();
+        else                   ShowTrayPopup();
     }
 
     private void ShowTrayPopup()
     {
         if (Jira == null) return;
-        if (_trayPopup == null)
+        // Always create a fresh window. WinUI 3 windows that have been
+        // hidden via AppWindow.Hide don't always reactivate cleanly, and
+        // recreating sidesteps stale state for both the popup body and
+        // the slide-in animation.
+        try { _trayPopup?.Close(); } catch { /* already gone */ }
+        _trayPopup = new TrayPopupWindow(Jira) { OpenMainRequested = BringMainToFront };
+        _trayPopup.HideRequested = () =>
         {
-            _trayPopup = new TrayPopupWindow(Jira)
-            {
-                OpenMainRequested = BringMainToFront
-            };
-            _trayPopup.Closed += (s, e) => _trayPopup = null;
-        }
+            _trayPopupVisible = false;
+            try { _trayPopup?.Close(); } catch { /* swallow */ }
+            _trayPopup = null;
+        };
+        _trayPopupVisible = true;
         _trayPopup.ShowNearTray();
+    }
+
+    private void HideTrayPopup()
+    {
+        if (_trayPopup == null) { _trayPopupVisible = false; return; }
+        try { _trayPopup.Close(); } catch { /* swallow */ }
+        _trayPopup = null;
+        _trayPopupVisible = false;
     }
 
     private void BringMainToFront()
     {
         if (MainWindow == null) return;
-        _trayPopup?.Hide(openMain: false);
-        MainWindow.Activate();
-        // AppWindow.Show + reorder so it pops above other top-level windows.
+        HideTrayPopup();
         var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(MainWindow);
         var wid = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
         var aw = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(wid);
         aw?.Show();
+        MainWindow.Activate();
     }
 
-    private bool _exiting;
     private new void Exit()
     {
         if (_exiting) return;
         _exiting = true;
         try { _tray?.Dispose(); } catch { /* tray already gone */ }
+        try { _trayPopup?.Close(); } catch { /* swallow */ }
         try { MainWindow?.Close(); } catch { /* already closing */ }
         Application.Current.Exit();
     }
