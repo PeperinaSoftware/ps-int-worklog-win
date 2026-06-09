@@ -1,0 +1,20 @@
+# build outputs
+**/bin/
+**/obj/
+**/AppPackages/
+**/BundleArtifacts/
+**/Generated Files/
+**/Microsoft.WindowsAppSDK*/
+*.pdb
+*.pri
+
+# VS / Rider
+.vs/
+*.user
+*.suo
+*.idea/
+.vscode/
+
+# NuGet
+**/packages/
+*.nupkg

@@ -1,0 +1,4 @@
+# Place app icons here (StoreLogo.png, SplashScreen.png, AppIcon.ico).
+# The project ships without an icon by default — Windows will use the
+# generic .exe icon. To add one, drop an AppIcon.ico file here and re-add
+# <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon> to the csproj.

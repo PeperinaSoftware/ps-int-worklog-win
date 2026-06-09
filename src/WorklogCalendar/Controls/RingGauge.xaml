@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WorklogCalendar.Controls.RingGauge"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid x:Name="RootGrid" Width="{x:Bind Diameter, Mode=OneWay}" Height="{x:Bind Diameter, Mode=OneWay}">
+        <!-- Background track (full circle) -->
+        <Ellipse x:Name="TrackEllipse"
+                 StrokeThickness="{x:Bind Thickness, Mode=OneWay}"
+                 Stroke="#2A2A2A"
+                 Width="{x:Bind RingDiameter, Mode=OneWay}"
+                 Height="{x:Bind RingDiameter, Mode=OneWay}" />
+        <!-- Foreground arc, drawn dynamically in code-behind -->
+        <Path x:Name="ArcPath"
+              StrokeThickness="{x:Bind Thickness, Mode=OneWay}"
+              StrokeStartLineCap="Round"
+              StrokeEndLineCap="Round" />
+        <!-- Center label -->
+        <TextBlock x:Name="CenterLabel"
+                   HorizontalAlignment="Center"
+                   VerticalAlignment="Center"
+                   FontWeight="Bold" />
+    </Grid>
+</UserControl>
