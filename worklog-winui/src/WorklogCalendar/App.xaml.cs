@@ -130,13 +130,16 @@ public partial class App : Application
 
     private void ShowTrayPopup()
     {
-        if (Jira == null) return;
+        if (Jira == null || Clockify == null) return;
         // Always create a fresh window. WinUI 3 windows that have been
         // hidden via AppWindow.Hide don't always reactivate cleanly, and
         // recreating sidesteps stale state for both the popup body and
         // the slide-in animation.
         try { _trayPopup?.Close(); } catch { /* already gone */ }
-        _trayPopup = new TrayPopupWindow(Jira) { OpenMainRequested = BringMainToFront };
+        _trayPopup = new TrayPopupWindow(Settings, Jira, Clockify)
+        {
+            OpenMainRequested = BringMainToFront
+        };
         _trayPopup.HideRequested = () =>
         {
             _trayPopupVisible = false;
